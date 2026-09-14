@@ -37,11 +37,17 @@ JK.EXE side by side.
 ----------------------------------------------------------------
 
 Make sure your VR runtime is running (SteamVR, Oculus app, etc.), then
-run:
+double-click:
 
-    jkdf2xr.exe
+    Play-JKDF2-XR.bat
 
 The game should appear in your headset in stereo 3D.
+
+Play-JKDF2-XR.bat checks which games you copied in. If you only have
+Dark Forces II, it starts that game at once. If you also added
+Mysteries of the Sith, it asks you which game to start.
+
+You can still run jkdf2xr.exe directly if you prefer.
 
 If nothing builds in the headset, confirm your OpenXR runtime is active
 (in SteamVR: Settings > OpenXR > "Set SteamVR as OpenXR runtime").
@@ -61,7 +67,8 @@ From your Mysteries of the Sith installation, copy into "mots":
     Resource/         (JKMRES.GOO, JKMsndLO.goo, JK_.CD, VIDEO/)
     MUSIC/            (optional)
 
-Then launch with:
+Then run Play-JKDF2-XR.bat and select Mysteries of the Sith. To start
+it without the menu, run:
 
     jkdf2xr.exe -motsCompat
 

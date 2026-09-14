@@ -6,8 +6,8 @@
 
 .DESCRIPTION
     Stages the built executable + required runtime DLLs, the engine resource
-    folder (shaders/ui/ssl), the pre-tuned VR weapon offsets, and a user
-    instructions file, then zips them up.
+    folder (shaders/ui/ssl), the pre-tuned VR weapon offsets, the
+    Play-JKDF2-XR.bat launcher, and a user instructions file, then zips them up.
 
       - The ZIP FILE name carries the version (e.g. JKDF2-XR-PCVR-v0.6.0.zip).
       - The folder INSIDE the zip is just "JKDF2-XR" (no version), so updating
@@ -93,6 +93,7 @@ if (-not (Test-Path $resourceSrc)) { throw "Engine resource folder not found at 
 if (-not (Test-Path $WeaponsJson)) { throw "Weapons json not found at $WeaponsJson" }
 
 $howToPlay = Join-Path $scriptDir 'files\HOW-TO-PLAY.txt'
+$launcherBat = Join-Path $scriptDir 'files\Play-JKDF2-XR.bat'
 
 # --- Stage -----------------------------------------------------------------
 $staging = Join-Path $OutputDir $folderName
@@ -132,12 +133,19 @@ Copy-Item $WeaponsJson (Join-Path $motsDir 'jkdf2xr_vr_weapons.json')
     "    Resource\VIDEO\   (cutscenes, optional)"
     "    MUSIC\            (optional)"
     ""
-    "Then launch with:  jkdf2xr.exe -motsCompat"
-    "(or put -motsCompat on a line in commandline.txt next to the exe)"
+    "Then run Play-JKDF2-XR.bat in the folder above and choose Mysteries of the Sith."
+    "(or launch jkdf2xr.exe -motsCompat by hand)"
 ) | Set-Content -Encoding ascii (Join-Path $motsDir 'PUT-MOTS-FILES-HERE.txt')
 
 # User instructions
 if (Test-Path $howToPlay) { Copy-Item $howToPlay (Join-Path $staging 'HOW-TO-PLAY.txt') }
+
+# Launcher - detects which games the user supplied and offers a chooser when both are present
+if (Test-Path $launcherBat) {
+    Copy-Item $launcherBat (Join-Path $staging 'Play-JKDF2-XR.bat')
+} else {
+    Write-Warning "Launcher batch file not found, skipping: $launcherBat"
+}
 
 # Version marker file (name + version visible at a glance)
 $marker = Join-Path $staging "$productName-v$version.txt"
@@ -169,4 +177,4 @@ Write-Host "Done." -ForegroundColor Green
 Write-Host "  Staging : $staging"
 Write-Host "  Zip     : $zipPath  ($zipSizeMB MB)"
 Write-Host ""
-Write-Host "Users: extract, copy game files into the JKDF2-XR folder, run jkdf2xr.exe."
+Write-Host "Users: extract, copy game files into the JKDF2-XR folder, run Play-JKDF2-XR.bat."

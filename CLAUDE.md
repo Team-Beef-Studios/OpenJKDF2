@@ -185,7 +185,16 @@ powershell -ExecutionPolicy Bypass -File packaging\pcvr\package-pcvr.ps1
 - The zip contains a single `JKDF2-XR/` folder (no version, for clean overwrites)
   with: the exe, the 4 runtime DLLs (OpenAL32/exchndl/mgwhelp/symsrv, from the
   `build_pcvr` root), the engine `resource/` (shaders/ui/ssl — from the repo, NOT
-  the user's game GOBs), `jkdf2xr_vr_weapons.json`, and `HOW-TO-PLAY.txt`.
+  the user's game GOBs), `jkdf2xr_vr_weapons.json`, `Play-JKDF2-XR.bat`, and
+  `HOW-TO-PLAY.txt`.
+- `Play-JKDF2-XR.bat` is the launcher end users run. It detects which games the
+  user supplied (DF2: `episode\JK1.gob` + `resource\Res2.gob`; MotS:
+  `mots\episode\JKM.goo` + `mots\resource\Jkmres.goo`) and shows a chooser only
+  when both are present. The `mots/` folder always exists in the package, so its
+  presence proves nothing — test for the assets, same as `LauncherActivity` on Quest.
+  Picking DF2 aborts with an explanation if `commandline.txt` contains
+  `-motsCompat`, because `Main_ReadCommandLineFile` merges that file into every
+  launch and it would override the choice.
 
 **Optional params:** `-BuildDir` (default `build_pcvr`), `-OutputDir` (default `dist`),
 `-WeaponsJson` (default `packaging/pcvr/files/jkdf2xr_vr_weapons.json`).
