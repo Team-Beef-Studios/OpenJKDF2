@@ -514,4 +514,27 @@ extern FAST_FUNC void* __aeabi_memcpy8(void* dst, const void* src, size_t len);*
 // =============================================================================
 //#define VR_WEAPON_ALIGNMENT_TOOL
 
+// =============================================================================
+// Sector transition logging - one line per camera sector change, naming the per-sector
+// values (colormap, ambient, tint, palette add, worldflash). Uncomment to chase a lighting
+// change that only appears when crossing a door or adjoin.
+// =============================================================================
+//#define VR_SECTOR_TRANSITION_DEBUG
+
+// =============================================================================
+// VR culling slack. The CPU decides what to draw from the centre view, but MultiView renders
+// from two eyes offset either side of it, so a plane the centre is just behind can still face
+// one eye. The geometric bound is half the eye separation, but worldScale (0.09) makes that
+// only ~0.003 game units, which absorbs nothing else - grazing angles, precision, an adjoin
+// plane a hair off. VR_CULL_FACING_MARGIN is added on top, in GAME units.
+// Raise it if surfaces or whole sectors still wink out at edges; the only cost is drawing a
+// little more that the GPU then discards.
+// =============================================================================
+#define VR_CULL_FACING_MARGIN (0.05)
+
+// Extra width on the CPU clip frustum, as a fraction of the half-FOV, beyond the projection
+// tangents. The projection/NDC mapping is unchanged - this only loosens the CPU clip planes and
+// lets the GPU clip the surplus. Also covers the near POV weapon (see rdCamera_SetVRTangents).
+#define VR_CLIP_FRUSTUM_MARGIN (0.75f)
+
 #endif // _OPENJKDF2_ENGINE_CONFIG_H

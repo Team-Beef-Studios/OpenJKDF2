@@ -79,6 +79,34 @@ static const wchar_t* stdVR_Prompts_TurnStickWord(void)
     return stdVR_Prompts_HandWord(stdVR_config.bSwapSticks ? STDVR_CONTROLLER_LEFT : STDVR_CONTROLLER_RIGHT);
 }
 
+// Face-button letters. Both pairs move with the control scheme, so name them from the live
+// mapping rather than literally - see stdVR_GetJumpButton and friends.
+static const wchar_t* stdVR_Prompts_ButtonWord(uint32_t btn)
+{
+    switch (btn) {
+        case STDVR_BTN_A: return L"A";
+        case STDVR_BTN_B: return L"B";
+        case STDVR_BTN_X: return L"X";
+        case STDVR_BTN_Y: return L"Y";
+        default:          return L"?";
+    }
+}
+
+static const wchar_t* stdVR_Prompts_JumpButtonWord(void)
+{
+    return stdVR_Prompts_ButtonWord(stdVR_GetJumpButton());
+}
+
+static const wchar_t* stdVR_Prompts_ActivateButtonWord(void)
+{
+    return stdVR_Prompts_ButtonWord(stdVR_GetActivateButton());
+}
+
+static const wchar_t* stdVR_Prompts_AltFireButtonWord(void)
+{
+    return stdVR_Prompts_ButtonWord(stdVR_GetAltFireButton());
+}
+
 static const wchar_t* stdVR_Prompts_DominantWord(void)
 {
     return stdVR_Prompts_HandWord(stdVR_config.dominantHand);
@@ -170,9 +198,9 @@ static int stdVR_Prompts_IsSatisfied(int promptId)
                                             || (stdVR_Input_IsButtonDown(STDVR_BTN_GRIP_L)
                                              && stdVR_Input_IsButtonDown(STDVR_BTN_GRIP_R));
         case STDVR_PROMPT_HOLOMAP_CLOSE: return !stdVR_Map3D_IsVisible();
-        case STDVR_PROMPT_JUMP:         return stdVR_Input_IsButtonDown(STDVR_BTN_A);
-        case STDVR_PROMPT_ACTIVATE:     return stdVR_Input_IsButtonDown(STDVR_BTN_X);
-        case STDVR_PROMPT_ALT_FIRE:     return stdVR_Input_IsButtonDown(STDVR_BTN_B);
+        case STDVR_PROMPT_JUMP:         return stdVR_Input_IsButtonDown(stdVR_GetJumpButton());
+        case STDVR_PROMPT_ACTIVATE:     return stdVR_Input_IsButtonDown(stdVR_GetActivateButton());
+        case STDVR_PROMPT_ALT_FIRE:     return stdVR_Input_IsButtonDown(stdVR_GetAltFireButton());
         default:                        return 0;
     }
 }
@@ -386,11 +414,14 @@ static void stdVR_Prompts_TickIntro(uint32_t now)
             stdVR_Prompts_ShowOnce(STDVR_PROMPT_WEAPON_WHEEL, "GUIEXT_VR_PROMPT_WEAPON_WHEEL",
                                    L"Hold the %ls grip to see your weapons",
                                    stdVR_Prompts_DominantWord(), NULL);
-            // Face buttons never swap with handedness, so they can be named literally.
+            // Face buttons never swap with handedness, but jump and activate do follow the
+            // thumbstick swap, so name them from the live mapping.
             stdVR_Prompts_ShowOnce(STDVR_PROMPT_JUMP, "GUIEXT_VR_PROMPT_JUMP",
-                                   L"Press A to jump", NULL, NULL);
+                                   L"Press %ls to jump",
+                                   stdVR_Prompts_JumpButtonWord(), NULL);
             stdVR_Prompts_ShowOnce(STDVR_PROMPT_ACTIVATE, "GUIEXT_VR_PROMPT_ACTIVATE",
-                                   L"Press X to open doors and use switches", NULL, NULL);
+                                   L"Press %ls to open doors and use switches",
+                                   stdVR_Prompts_ActivateButtonWord(), NULL);
             // The holomap prompt is deliberately last in this batch, so the first thing shown
             // after the player opens the map is STDVR_PROMPT_HOLOMAP_GRAB.
             stdVR_Prompts_ShowOnce(STDVR_PROMPT_HOLOMAP, "GUIEXT_VR_PROMPT_HOLOMAP",
@@ -519,7 +550,7 @@ static void stdVR_Prompts_TickWeapon(void)
     else if (stdVR_Prompts_WeaponHasAltFire(weap)) {
         stdVR_Prompts_ShowOnce(STDVR_PROMPT_ALT_FIRE, "GUIEXT_VR_PROMPT_ALT_FIRE",
                                L"Fire with the %ls trigger, alt-fire with %ls",
-                               stdVR_Prompts_DominantWord(), L"B");
+                               stdVR_Prompts_DominantWord(), stdVR_Prompts_AltFireButtonWord());
     }
 }
 

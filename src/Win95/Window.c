@@ -1219,8 +1219,13 @@ void Window_SdlUpdate()
         static int vrSessionRetryCount = 0;
         vrMenuCheckCount++;
 
+        // Added: the runtime asked us to quit (its universal menu). Exit through the normal
+        // path instead of rebuilding the session once a second and outliving the headset.
+        if (stdVR_IsExitRequested()) {
+            g_should_exit = 1;
+        }
         // Retry VR session creation if not yet running (headset might not have been ready initially)
-        if (stdVR_bInitted && stdVR_bEnabled && !stdVR_IsSessionRunning()) {
+        else if (stdVR_bInitted && stdVR_bEnabled && !stdVR_IsSessionRunning()) {
             // Retry every 60 frames (~1 second at 60fps)
             if (vrSessionRetryCount % 60 == 0) {
                 extern void* glWindowContext;

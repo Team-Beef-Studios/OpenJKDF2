@@ -1061,8 +1061,15 @@ void sithCamera_PrepareFrameVR(void)
 
         sithCamera_currentCamera->vec3_1 = hmdView.scale;
         if (baseSector) {
-            sithCamera_currentCamera->sector = sithCollision_GetSectorLookAt(
+            // Added: keep the body's sector when the trace to the head fails. It returns NULL
+            // when the head crosses geometry the trace cannot resolve - common on stairs, where
+            // each step can be its own thin sector - and a NULL sector makes sithRender_Draw
+            // bail out for that frame, dropping the whole world.
+            sithSector* pHmdSector = sithCollision_GetSectorLookAt(
                 baseSector, &basePos, &hmdView.scale, 0.02f);
+            if (pHmdSector) {
+                sithCamera_currentCamera->sector = pHmdSector;
+            }
         }
     }
 }
@@ -1113,10 +1120,29 @@ void sithCamera_SetVRViewMultiView(void)
     // vertical from eye 0. This is wide enough to enclose BOTH eyes' real per-eye frustums, so no
     // geometry visible to either eye is clipped away on the CPU; the GPU then clips each eye's
     // surplus at NDC after applying that eye's real projection matrix.
-    float fovLeft = stdVR_clientInfo.eyes[0].fovLeft;
-    float fovRight = stdVR_clientInfo.eyes[1].fovRight;
-    float fovUp = stdVR_clientInfo.eyes[0].fovUp;
-    float fovDown = stdVR_clientInfo.eyes[0].fovDown;
+    // Altered: take the union of BOTH eyes on BOTH axes. The vertical used to come from eye 0
+    // alone, so on any headset whose eyes are canted or vertically asymmetric, anything eye 1
+    // could see above or below eye 0's extent was CPU-clipped away - a horizontal band of
+    // missing geometry with the sky dome behind it. Horizontal was already a union in the usual
+    // case; taking the max makes it one whichever way the runtime reports the angles.
+#ifdef VR_SECTOR_TRANSITION_DEBUG
+    {
+        extern void VR_Log(const char* fmt, ...);
+        static int bLoggedFov = 0;
+        if (!bLoggedFov) {
+            bLoggedFov = 1;
+            for (int e = 0; e < 2; e++) {
+                VR_Log("EYEFOV eye%d L=%.5f R=%.5f U=%.5f D=%.5f\n", e,
+                    stdVR_clientInfo.eyes[e].fovLeft, stdVR_clientInfo.eyes[e].fovRight,
+                    stdVR_clientInfo.eyes[e].fovUp, stdVR_clientInfo.eyes[e].fovDown);
+            }
+        }
+    }
+#endif
+    float fovLeft  = stdMath_Max(stdVR_clientInfo.eyes[0].fovLeft,  stdVR_clientInfo.eyes[1].fovLeft);
+    float fovRight = stdMath_Max(stdVR_clientInfo.eyes[0].fovRight, stdVR_clientInfo.eyes[1].fovRight);
+    float fovUp    = stdMath_Max(stdVR_clientInfo.eyes[0].fovUp,    stdVR_clientInfo.eyes[1].fovUp);
+    float fovDown  = stdMath_Max(stdVR_clientInfo.eyes[0].fovDown,  stdVR_clientInfo.eyes[1].fovDown);
 
     // Set frustum tangents for CPU clipping
     rdCamera_SetVRTangents(fovLeft, fovRight, fovUp, fovDown);

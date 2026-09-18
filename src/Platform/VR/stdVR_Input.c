@@ -330,13 +330,17 @@ void stdVR_Input_MapToGame(void)
         stdVR_menuButtonHeld = 0;
     }
 
-    // Added: Y button on the left controller also opens the in-game pause menu.
-    // Uses the rising-edge bit so a single press fires once. We don't want the
-    // long-press-to-recenter behaviour the system menu button has — Y is a
-    // simple "open menu" action.
-    if (stdVR_clientInfo.buttonPressed & STDVR_BTN_Y) {
-        stdVR_menuTriggeredThisFrame = 1;
-        stdVR_TriggerHaptic(STDVR_CONTROLLER_LEFT, 0.3f, 0.1f, 100.0f);
+    // Added: the off-hand upper face button also opens the in-game pause menu. Uses the
+    // rising-edge bit so a single press fires once - no long-press-to-recenter, unlike the
+    // headset's own menu button.
+    // Altered: this was hard-wired to Y. Alt-fire has to sit on the weapon hand, so the two
+    // upper buttons trade with handedness and the menu takes whichever one is left.
+    {
+        uint32_t btnMenu = stdVR_GetMenuButton();
+        if (stdVR_clientInfo.buttonPressed & btnMenu) {
+            stdVR_menuTriggeredThisFrame = 1;
+            stdVR_TriggerHaptic(stdVR_GetButtonHand(btnMenu), 0.3f, 0.1f, 100.0f);
+        }
     }
 
     // Mirror JKXR-style logic: use screen layer when UI/cinematics/menus are active

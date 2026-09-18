@@ -2,8 +2,8 @@
 <!-- OpenJKDF2 VR - Android VR Manifest (Meta Quest + Pico 4/Neo3) -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.teambeefvr.jkdf2xr"
-    android:versionCode="2"
-    android:versionName="0.7.1"
+    android:versionCode="3"
+    android:versionName="0.7.2"
     android:installLocation="auto">
 
     <!-- OpenGL ES 3.1 required for Quest VR -->

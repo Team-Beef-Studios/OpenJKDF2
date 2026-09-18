@@ -723,18 +723,15 @@ int sithControl_ReadFunctionMap(int funcIdx, int *pOut)
 #ifdef PLATFORM_VR
     if (stdVR_bEnabled && stdVR_IsSessionRunning()) {
         int dominantLeft = (stdVR_config.dominantHand == STDVR_CONTROLLER_LEFT);
-        // Trigger / grip swap with dominant hand (they live on the weapon hand
-        // vs the off hand). Face buttons do NOT swap — A is always jump, X is
-        // always activate, B is always alt-fire, Y is always the menu button.
-        // Swapping face buttons by hand would collide with Y's menu role and
-        // generally surprises users who expect labelled buttons to keep their
-        // function across hand modes.
+        // Trigger / grip swap with dominant hand (they live on the weapon hand vs the
+        // off hand). The face buttons move too - see stdVR_GetJumpButton and friends
+        // for which pair follows what, and why.
         uint32_t btnFire1    = dominantLeft ? STDVR_BTN_TRIGGER_L : STDVR_BTN_TRIGGER_R;
         uint32_t btnUseSkill = dominantLeft ? STDVR_BTN_TRIGGER_R : STDVR_BTN_TRIGGER_L;
         uint32_t btnUseInv   = dominantLeft ? STDVR_BTN_GRIP_R    : STDVR_BTN_GRIP_L;
-        uint32_t btnJump     = STDVR_BTN_A;
-        uint32_t btnActivate = STDVR_BTN_X;
-        uint32_t btnAltFire  = STDVR_BTN_B;
+        uint32_t btnJump     = stdVR_GetJumpButton();
+        uint32_t btnActivate = stdVR_GetActivateButton();
+        uint32_t btnAltFire  = stdVR_GetAltFireButton();
 
         // The weapon alignment tool takes over the controller: its sticks edit the offsets and
         // its buttons cycle modes, so no VR input reaches the game while it is up - except

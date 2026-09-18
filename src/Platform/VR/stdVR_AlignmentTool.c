@@ -123,11 +123,16 @@ void stdVR_AlignmentTool_Update(float deltaSeconds)
 
     float rightStickY = stdVR_AlignmentTool_ApplyDeadzone(stdVR_clientInfo.analogTurn[1]);
 
+    // Added: the stored offsets are always in right-hand sense; the renderer mirrors X, yaw
+    // and roll for the left hand. Invert those sticks here so the weapon moves the way the
+    // tester pushes, and the saved file stays hand-neutral.
+    float mirror = (stdVR_GetDominantHand() == STDVR_CONTROLLER_LEFT) ? -1.0f : 1.0f;
+
     // Apply adjustments based on mode
     switch (stdVR_alignmentTool_mode) {
         case STDVR_ALIGN_POSITION:
             // Left stick X/Y = offset X/Y, Right stick Y = offset Z
-            pOffset->offsetX += leftStickX * STDVR_ALIGN_POS_SPEED * deltaSeconds;
+            pOffset->offsetX += mirror * leftStickX * STDVR_ALIGN_POS_SPEED * deltaSeconds;
             pOffset->offsetY += leftStickY * STDVR_ALIGN_POS_SPEED * deltaSeconds;
             pOffset->offsetZ += rightStickY * STDVR_ALIGN_POS_SPEED * deltaSeconds;
             break;
@@ -144,8 +149,8 @@ void stdVR_AlignmentTool_Update(float deltaSeconds)
             // Left stick Y = pitch, left stick X = yaw, right stick Y = roll. This matches
             // the layout of POSITION mode, so all three axes need no extra mode change.
             pOffset->pitchAdjust += leftStickY * STDVR_ALIGN_PITCH_SPEED * deltaSeconds;
-            pOffset->yawAdjust += leftStickX * STDVR_ALIGN_PITCH_SPEED * deltaSeconds;
-            pOffset->rollAdjust += rightStickY * STDVR_ALIGN_PITCH_SPEED * deltaSeconds;
+            pOffset->yawAdjust += mirror * leftStickX * STDVR_ALIGN_PITCH_SPEED * deltaSeconds;
+            pOffset->rollAdjust += mirror * rightStickY * STDVR_ALIGN_PITCH_SPEED * deltaSeconds;
 
             // Clamp each axis to a sensible range
             if (pOffset->pitchAdjust < -180.0f) pOffset->pitchAdjust = -180.0f;

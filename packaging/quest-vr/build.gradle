@@ -37,8 +37,8 @@ android {
         // These override AndroidManifest.xml - the Android Gradle Plugin always wins for
         // versionCode/versionName, so editing the manifest alone changes nothing. Keep the
         // two in step, and in step with OPENJKDF2VR_PROJECT_VERSION in cmake_modules.
-        versionCode 2
-        versionName "0.7.1"
+        versionCode 3
+        versionName "0.7.2"
 
         ndk {
             abiFilters 'arm64-v8a'

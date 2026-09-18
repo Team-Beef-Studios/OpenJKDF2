@@ -107,6 +107,12 @@ int sithSector_Load(sithWorld *world, int tmp)
             if ( _sscanf(stdConffile_aLine, " colormap %d", &tmp) != 1 )
                 break;
             sectors->colormap = &world->colormaps[tmp];
+            // Added: a sector with no "tint" line used to inherit whatever the last sscanf
+            // left behind - tmpf1 still held this sector's extra light - so it got a tint it
+            // was never given. Default to no tint instead.
+            tmpf1 = 0.0;
+            tmpf2 = 0.0;
+            tmpf3 = 0.0;
             if ( !stdConffile_ReadLine()
               || _sscanf(stdConffile_aLine, " tint %f %f %f", &tmpf1, &tmpf2, &tmpf3) == 3 && !stdConffile_ReadLine() )
             {

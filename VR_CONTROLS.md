@@ -5,15 +5,27 @@ The diagram and tables below show the default layout: **Dominant Hand = Right**,
 
 Two options in the VR options menu change the layout. They are independent:
 
-- **Dominant Hand** moves the *triggers* and the *grips* to the other controller.
-  The weapon model follows the dominant controller and projectiles leave its barrel.
-- **Swap Thumbsticks** exchanges the *move* and *turn* sticks, and the actions on
-  their clicks move with them.
+- **Dominant Hand** moves the *triggers*, the *grips* and **Alt Fire** to the other
+  controller. The weapon model follows the dominant controller and projectiles leave
+  its barrel. Alt fire has to follow the weapon hand - you do not alt fire with your
+  off hand. **Menu** takes whichever upper button alt fire did not.
+- **Swap Thumbsticks** exchanges the *move* and *turn* sticks, the actions on their
+  clicks, and the **Jump** and **Activate** buttons. Jump has to follow the movement
+  stick, or both land on the same thumb and you cannot move and jump at once.
 
-Two groups never move:
+The face buttons move in pairs, each for its own reason:
 
-- **Face buttons.** A is always Jump, B is always Alt Fire, X is always Activate,
-  Y is always Menu. A labelled button keeps its job in every layout.
+| Pair | Follows | Default (right-handed, sticks unswapped) |
+|---|---|---|
+| Lower: A / X | the **movement stick** | A = Jump, X = Activate |
+| Upper: B / Y | the **weapon hand** | B = Alt Fire, Y = Menu |
+
+Jump must not share a thumb with movement, and alt fire must sit under the hand holding
+the weapon. The menu is always reachable from the headset's own menu button as well, so
+it takes whichever upper button is left over.
+
+One thing never moves:
+
 - **Thumbstick roles.** Move is the left stick and turn is the right stick, in
   **both** handedness modes. Only **Swap Thumbsticks** changes this.
 

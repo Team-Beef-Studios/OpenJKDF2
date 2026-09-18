@@ -286,10 +286,11 @@ public class LauncherActivity extends Activity {
             motsFolder.mkdirs();
         }
         if (motsFolder.exists()) {
-            File motsOffsets = new File(MOTS_FOLDER + "/" + VR_WEAPON_OFFSETS_FILE);
-            if (!motsOffsets.exists()) {
-                copyAssetFile(VR_WEAPON_OFFSETS_FILE, motsOffsets.getPath());
-            }
+            // Altered: this used to copy only when the file was absent, so the MotS offsets were
+            // frozen at whatever the first install wrote and no later APK could correct them -
+            // the DF2 copy above has always been refreshed every launch. The bundled file is the
+            // golden source for both games, so keep them consistent and refresh this one too.
+            copyAssetFile(VR_WEAPON_OFFSETS_FILE, MOTS_FOLDER + "/" + VR_WEAPON_OFFSETS_FILE);
         }
     }
 

@@ -89,6 +89,13 @@ rdModel3* sithModel_LoadEntry(const char *model_3do_fname, int unk)
     if ( model )
         return model;
 
+    // Added: this only ever ran during a level load, where sithWorld_pLoading is set. The VR
+    // weapon wheel calls it at runtime to cache its models, and a name the level never loaded
+    // falls past the hash-table hit above into a null deref. Nothing can be loaded outside a
+    // load, so report the miss instead of crashing.
+    if ( !sithWorld_pLoading )
+        return 0;
+
     if ( sithWorld_pLoading->numModelsLoaded >= sithWorld_pLoading->numModels )
         return 0;
     model = &sithWorld_pLoading->models[sithWorld_pLoading->numModelsLoaded];

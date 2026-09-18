@@ -7,6 +7,7 @@
 #include "World/sithSurface.h"
 #include "World/sithWorld.h"
 #include "Raster/rdCache.h"
+#include "Engine/rdroid.h"
 #include "Primitives/rdMatrix.h"
 #include "jk.h"
 
@@ -83,6 +84,13 @@ void sithRenderSky_DrawVRDome(void)
     if (!pHorizonMat && !pCeilingMat)
         return;
 
+    // Added: the dome is queued into the shared face cache BEFORE sithRender_Draw sets up the
+    // frame's render state, so it used to be flushed under whatever the previous pass (often the
+    // depth-less HUD) left behind. When that happened the dome painted over the world above its
+    // horizon for one frame - the "white flash". Set the depth mode we need, and flush the dome
+    // on its own so no later state change can reach it.
+    rdSetZBufferMethod(RD_ZBUFFER_READ_WRITE);
+
     flex_t farY = rdCamera_pCurCamera->pClipFrustum->zFar - 0.2;
     flex_t ppr  = sithSector_horizontalPixelsPerRev_idk;  // pixels-per-degree (pixelsPerRev/360)
     rdVector2 hOff = pWorld->horizontalSkyOffs;
@@ -158,6 +166,9 @@ void sithRenderSky_DrawVRDome(void)
             rdCache_AddProcFace(0, 4, 7);
         }
     }
+
+    // The dome fills half of RDCACHE_MAX_TRIS; flushing here also frees those slots for the world.
+    rdCache_Flush();
 }
 #endif // PLATFORM_VR
 

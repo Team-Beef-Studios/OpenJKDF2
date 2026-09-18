@@ -376,7 +376,13 @@ void jkPlayer_ResetVars()
     jkPlayer_vrPromptsShown = 0;
     jkPlayer_vrRefreshRate = 0.0f;
     jkPlayer_vrMoveDirection = 1;
+    // Added: PCVR has the GPU headroom, so default to the top of the slider. Standalone
+    // must protect its frame budget.
+#if defined(TARGET_ANDROID_NATIVE_GLES)
     jkPlayer_vrSupersampling = 1.0f;
+#else
+    jkPlayer_vrSupersampling = 1.25f;
+#endif
     jkPlayer_vr6DoFScale = 1.0f;
     jkPlayer_vrCameraInterp = 1;
     jkPlayer_vrMoveQuakeFeel = 1;

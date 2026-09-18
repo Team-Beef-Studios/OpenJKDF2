@@ -20,6 +20,9 @@
 #include "Engine/rdCamera.h"
 #include "Engine/sithRenderSky.h"
 #include "General/stdMath.h"
+#ifdef PLATFORM_VR
+#include "Platform/VR/stdVR.h"
+#endif
 #include "Raster/rdFace.h"
 #include "Primitives/rdModel3.h"
 #include "Primitives/rdPrimit3.h"
@@ -47,6 +50,18 @@ static int lightDebugNum = 0;
 #ifdef JKM_LIGHTING
 int sithRender_008d4094 = 0;
 flex_t sithRender_008d4098 = 0.0;
+#ifdef PLATFORM_VR
+// Added: half the eye separation, in game units. The CPU decides what to draw from the
+// centre view, but MultiView renders from eyes offset either side of it, so a plane the
+// centre is just behind can still face one eye. Widen every facing test by this much.
+static flex_t sithRender_vrEyeMargin = 0.0;
+#endif
+#ifdef VR_SECTOR_TRANSITION_DEBUG
+static int sithRender_vrSkySkipCount = 0;
+static int sithRender_vrDegeneratePortals = 0;
+static int sithRender_vrPortalsNarrowed = 0;
+static int sithRender_vrPreStamped = 0;
+#endif
 flex_t sithRender_008d409c = 0.0;
 #endif
 
@@ -342,12 +357,6 @@ void sithRender_Draw()
 #endif
 
     sithRenderSky_Update();
-#ifdef PLATFORM_VR
-    // VR: render a real world-fixed sky dome instead of the 2D screen-space sky. No-op on
-    // desktop / non-GPU-projection (the legacy 2D sky path stays the fallback there). The dome
-    // is submitted first so it sits behind the world geometry that draws over it.
-    sithRenderSky_DrawVRDome();
-#endif
     if (!sithRender_geoMode) {
 #ifdef PLATFORM_VR
         extern int stdVR_bEnabled;
@@ -385,7 +394,108 @@ void sithRender_Draw()
         return;
     }
 
+#ifdef PLATFORM_VR
+    sithRender_vrEyeMargin = stdVR_GetEyeOffsetWorld();
+#endif
+
+#ifdef PLATFORM_VR
+    // VR: a real world-fixed sky dome replaces the 2D screen-space sky. Submitted before the
+    // world geometry so that draws over it.
+    // Altered: this used to run BEFORE the two early returns above. When either fired - or the
+    // traversal found nothing - the dome was the only thing in the frame, so a dropped frame
+    // showed as a full screen of bright sky rather than as nothing at all.
+    sithRenderSky_DrawVRDome();
+#endif
+
     sithPlayer_SetScreenTint(sithCamera_currentCamera->sector->tint.x, sithCamera_currentCamera->sector->tint.y, sithCamera_currentCamera->sector->tint.z);
+
+#ifdef VR_SECTOR_TRANSITION_DEBUG
+    // Counts sky-flagged surfaces skipped for the dome. A spike here means a large sky surface
+    // came into view, which would show the dome straight through it.
+    {
+        extern void VR_Log(const char* fmt, ...);
+        static int prevSkySkip = -1;
+        static int skyFrame = 0;
+        skyFrame++;
+        if (sithRender_vrSkySkipCount != prevSkySkip) {
+            VR_Log("SKYSKIP f=%d skipped=%d (was %d) gpuProj=%d sectors=%d/%d surfaces=%d\n",
+                skyFrame, sithRender_vrSkySkipCount, prevSkySkip, rdCamera_bGpuProjection,
+                sithRender_numSectors, sithRender_numSectors2, sithRender_numSurfaces);
+            prevSkySkip = sithRender_vrSkySkipCount;
+        }
+        // The anomaly itself: a frame that traverses far fewer sectors than the one before it
+        // has lost geometry, whatever the reason. Catch it directly instead of guessing which
+        // statistic explains it.
+        {
+            static int prevSectors = 0;
+            if (prevSectors > 5 && sithRender_numSectors * 2 < prevSectors) {
+                rdClipFrustum* pF = rdCamera_pCurCamera ? rdCamera_pCurCamera->pClipFrustum : NULL;
+                VR_Log("DROPOUT f=%d sector=%d sectors=%d (prev %d) drawn=%d portals=%d degen=%d preStamped=%d frustum L=%.4f R=%.4f T=%.4f B=%.4f\n",
+                    skyFrame, (int)sithCamera_currentCamera->sector->id,
+                    sithRender_numSectors, prevSectors, sithRender_sectorsDrawn,
+                    sithRender_vrPortalsNarrowed, sithRender_vrDegeneratePortals, sithRender_vrPreStamped,
+                    pF ? (float)pF->farLeft : 0.f, pF ? (float)pF->right : 0.f,
+                    pF ? (float)pF->farTop : 0.f, pF ? (float)pF->bottom : 0.f);
+            }
+            prevSectors = sithRender_numSectors;
+        }
+
+        // High-water marks, so one run shows how close this level gets to the caps.
+        {
+            static int hwSectors = 0, hwSectors2 = 0, hwSurfaces = 0;
+            if (sithRender_numSectors > hwSectors || sithRender_numSectors2 > hwSectors2
+             || sithRender_numSurfaces > hwSurfaces) {
+                if (sithRender_numSectors > hwSectors) hwSectors = sithRender_numSectors;
+                if (sithRender_numSectors2 > hwSectors2) hwSectors2 = sithRender_numSectors2;
+                if (sithRender_numSurfaces > hwSurfaces) hwSurfaces = sithRender_numSurfaces;
+                VR_Log("HIGHWATER f=%d sectors=%d/%d sectors2=%d/%d surfaces=%d\n",
+                    skyFrame, hwSectors, SITH_MAX_VISIBLE_SECTORS,
+                    hwSectors2, SITH_MAX_VISIBLE_SECTORS_2, hwSurfaces);
+            }
+        }
+
+        // The traversal silently returns when it hits these caps, dropping every sector it had
+        // not reached yet - which would leave a hole for the dome to show through.
+        if (sithRender_numSectors >= SITH_MAX_VISIBLE_SECTORS
+         || sithRender_numSectors2 >= SITH_MAX_VISIBLE_SECTORS_2
+         || sithRender_numClipFrustums >= SITH_MAX_VISIBLE_SECTORS) {
+            VR_Log("SECTORCAP f=%d HIT sectors=%d/%d frustums=%d limits=%d/%d\n",
+                skyFrame, sithRender_numSectors, sithRender_numSectors2,
+                sithRender_numClipFrustums, SITH_MAX_VISIBLE_SECTORS, SITH_MAX_VISIBLE_SECTORS_2);
+        }
+        sithRender_vrPortalsNarrowed = 0;
+        sithRender_vrDegeneratePortals = 0;
+        sithRender_vrPreStamped = 0;
+        sithRender_vrSkySkipCount = 0;
+    }
+
+    // Added: names the per-sector value that jumps when the screen flashes white at a door.
+    // Turn the define on in engine_config.h for one test session, then turn it back off.
+    {
+        // The PCVR build is windowed, so this has to reach vr_debug.log to be readable.
+        extern void VR_Log(const char* fmt, ...);
+        static sithSector* pPrevSector = NULL;
+        static int frameCounter = 0;
+        sithSector* pSector = sithCamera_currentCamera->sector;
+        frameCounter++;
+        if (pSector != pPrevSector) {
+            int colormapIdx = (sithWorld_pCurrentWorld && sithWorld_pCurrentWorld->colormaps)
+                            ? (int)(pSector->colormap - sithWorld_pCurrentWorld->colormaps) : -1;
+            VR_Log(
+                "SECTOR f=%d %d -> %d: colormap=%d ambient=%.3f extra=%.3f tint=(%.3f %.3f %.3f) "
+                "add=(%.0f %.0f %.0f) worldflash=%.3f vtxColorMode=%d\n",
+                frameCounter,
+                pPrevSector ? (int)pPrevSector->id : -1, (int)pSector->id, colormapIdx,
+                (float)pSector->ambientLight, (float)pSector->extraLight,
+                (float)pSector->tint.x, (float)pSector->tint.y, (float)pSector->tint.z,
+                (float)rdroid_curColorEffects.add.x, (float)rdroid_curColorEffects.add.y,
+                (float)rdroid_curColorEffects.add.z,
+                (float)sithRender_008d4098,
+                (sithRender_flag & 0x80) ? 1 : 0);
+            pPrevSector = pSector;
+        }
+    }
+#endif
 
     // TODO: Verify this is expensive
 #ifndef TARGET_TWL
@@ -737,6 +847,9 @@ void sithRender_Clip(sithSector *sector, rdClipFrustum *frustumArg, flex_t prevA
             VR_Log("  -> EARLY RETURN: clipVisited matches lastRenderTick\n");
         }
 #endif
+#ifdef VR_SECTOR_TRANSITION_DEBUG
+        sithRender_vrPreStamped++;
+#endif
         sector->clipFrustum = rdCamera_pCurCamera->pClipFrustum;
         return;
     }
@@ -748,6 +861,9 @@ void sithRender_Clip(sithSector *sector, rdClipFrustum *frustumArg, flex_t prevA
         if (doLog) {
             VR_Log("  -> renderTick matches, just updating frustum\n");
         }
+#endif
+#ifdef VR_SECTOR_TRANSITION_DEBUG
+        sithRender_vrPreStamped++;
 #endif
         sector->clipFrustum = rdCamera_pCurCamera->pClipFrustum;
     }
@@ -885,7 +1001,11 @@ void sithRender_Clip(sithSector *sector, rdClipFrustum *frustumArg, flex_t prevA
         }
 
         v20 = &sithWorld_pCurrentWorld->vertices[*adjoinSurface->surfaceInfo.face.vertexPosIdx];
-        flex_t dist = rdMath_DistancePointToPlane(&sithCamera_currentCamera->vec3_1, &adjoinSurface->surfaceInfo.face.normal, v20);
+        flex_t dist = rdMath_DistancePointToPlane(&sithCamera_currentCamera->vec3_1, &adjoinSurface->surfaceInfo.face.normal, v20)
+#ifdef PLATFORM_VR
+                       + sithRender_vrEyeMargin
+#endif
+                       ;
         flex_t adjoinDistAdd = adjoinIter->dist + adjoinIter->mirror->dist + prevAdjoinDistAdd;
 
         // Avoid rendering adjoins if they're far enough away
@@ -1039,6 +1159,10 @@ void sithRender_Clip(sithSector *sector, rdClipFrustum *frustumArg, flex_t prevA
                     flex_t v49 = maxY + 1.5;
 #endif
 
+#ifdef VR_SECTOR_TRANSITION_DEBUG
+                    sithRender_vrPortalsNarrowed++;
+                    if (v48 <= v46 || v49 <= v47) sithRender_vrDegeneratePortals++;
+#endif
                     rdCamera_BuildClipFrustum(rdCamera_pCurCamera, &outClip, (int)(v46 - -0.5), (int)(v47 - -0.5), (int)v48, (int)v49);
                     v31 = &outClip;
 
@@ -1096,6 +1220,9 @@ void sithRender_NoClip(sithSector *sector, rdClipFrustum *frustumArg, flex_t pre
     // Does not help much, but no visual harm either
 #ifdef QOL_IMPROVEMENTS
     if (sector->clipVisited == sithRender_lastRenderTick || sector->renderTick == sithRender_lastRenderTick) {
+#ifdef VR_SECTOR_TRANSITION_DEBUG
+        sithRender_vrPreStamped++;
+#endif
         sector->clipFrustum = rdCamera_pCurCamera->pClipFrustum;
         return;
     }
@@ -1103,6 +1230,9 @@ void sithRender_NoClip(sithSector *sector, rdClipFrustum *frustumArg, flex_t pre
 
     if ( sector->renderTick == sithRender_lastRenderTick )
     {
+#ifdef VR_SECTOR_TRANSITION_DEBUG
+        sithRender_vrPreStamped++;
+#endif
         sector->clipFrustum = rdCamera_pCurCamera->pClipFrustum;
     }
     else
@@ -1141,6 +1271,9 @@ void sithRender_NoClip(sithSector *sector, rdClipFrustum *frustumArg, flex_t pre
         _memcpy(frustum, frustumArg, sizeof(rdClipFrustum));
         thing = sector->thingsList;
         //sector->clipFrustum = frustum;
+#ifdef VR_SECTOR_TRANSITION_DEBUG
+        sithRender_vrPreStamped++;
+#endif
         sector->clipFrustum = rdCamera_pCurCamera->pClipFrustum;
         lightIdx = sithRender_numLights;
 
@@ -1230,7 +1363,11 @@ void sithRender_NoClip(sithSector *sector, rdClipFrustum *frustumArg, flex_t pre
         adjoinSurface = adjoinIter->surface;
 
         v20 = &sithWorld_pCurrentWorld->vertices[*adjoinSurface->surfaceInfo.face.vertexPosIdx];
-        flex_t dist = rdMath_DistancePointToPlane(&sithCamera_currentCamera->vec3_1, &adjoinSurface->surfaceInfo.face.normal, v20);
+        flex_t dist = rdMath_DistancePointToPlane(&sithCamera_currentCamera->vec3_1, &adjoinSurface->surfaceInfo.face.normal, v20)
+#ifdef PLATFORM_VR
+                       + sithRender_vrEyeMargin
+#endif
+                       ;
         flex_t adjoinDistAdd = adjoinIter->dist + adjoinIter->mirror->dist + prevAdjoinDistAdd;
 
         // Avoid rendering adjoins if they're far enough away
@@ -1470,7 +1607,11 @@ void sithRender_KindaClip(sithSector *sector, rdClipFrustum *frustumArg, flex_t 
         adjoinSurface = adjoinIter->surface;
 
         v20 = &sithWorld_pCurrentWorld->vertices[*adjoinSurface->surfaceInfo.face.vertexPosIdx];
-        flex_t dist = rdMath_DistancePointToPlane(&sithCamera_currentCamera->vec3_1, &adjoinSurface->surfaceInfo.face.normal, v20);
+        flex_t dist = rdMath_DistancePointToPlane(&sithCamera_currentCamera->vec3_1, &adjoinSurface->surfaceInfo.face.normal, v20)
+#ifdef PLATFORM_VR
+                       + sithRender_vrEyeMargin
+#endif
+                       ;
         flex_t adjoinDistAdd = adjoinIter->dist /*+ adjoinIter->mirror->dist*/ + prevAdjoinDistAdd;
 
         // Avoid rendering adjoins if they're far enough away
@@ -1941,10 +2082,18 @@ void sithRender_RenderLevelGeometry()
             // VR: the 2D screen-space sky is replaced by the world-fixed dome (sithRenderSky_DrawVRDome,
             // submitted above). Skip the sky surfaces so they don't z-fight the dome; the world geometry
             // then occludes the dome everywhere except through these openings.
-            if (bIsSkySurface && rdCamera_bGpuProjection)
-                continue;
+            if (bIsSkySurface && rdCamera_bGpuProjection) {
+#ifdef VR_SECTOR_TRANSITION_DEBUG
+                sithRender_vrSkySkipCount++;
 #endif
-            flex_t dist = rdMath_DistancePointToPlane(&sithCamera_currentCamera->vec3_1, &v65->surfaceInfo.face.normal, &vertices_alloc[*v65->surfaceInfo.face.vertexPosIdx]);
+                continue;
+            }
+#endif
+            flex_t dist = rdMath_DistancePointToPlane(&sithCamera_currentCamera->vec3_1, &v65->surfaceInfo.face.normal, &vertices_alloc[*v65->surfaceInfo.face.vertexPosIdx])
+#ifdef PLATFORM_VR
+                       + sithRender_vrEyeMargin
+#endif
+                       ;
             if (UNLIKELY(dist <= 0.0))
                 continue;
 #ifdef TARGET_TWL

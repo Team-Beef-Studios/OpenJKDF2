@@ -270,12 +270,18 @@ int jkGame_Update()
                     // Set up center camera (MultiView handles eye separation in shader)
                     sithCamera_SetVRViewMultiView();
 
-                    // Advance render tick
-                    sithMain_sub_4C4D80();
-
                     // Added: Update weapon crosshair position (creates/moves a sithThing)
                     // Must be before sithRender_Draw so the thing is visible this frame
                     stdVR_DrawWeaponCrosshair();
+
+                    // Altered: advance the render tick IMMEDIATELY before the traversal that
+                    // depends on it. sithRender_lastRenderTick is a generation counter shared
+                    // with the AI, the automap and sithMap, and sector->renderTick is the field
+                    // they all stamp. Anything that runs between the bump and sithRender_Draw -
+                    // a thing spawn, a COG, an AI sight check - can stamp sectors at the current
+                    // generation, and the renderer then treats them as already drawn and skips
+                    // them, leaving a hole for one frame.
+                    sithMain_sub_4C4D80();
 
                     // Render scene once - GPU renders to both eye layers
                     sithRender_Draw();

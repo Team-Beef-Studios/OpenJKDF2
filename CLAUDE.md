@@ -284,7 +284,5 @@ export TARGET_BUILD_TESTS=1
 ./build_linux64/rle_test
 ```
 
-VR can be tested without a headset:
-```bash
-./jkdf2xr.exe -vrtest -vrframes 600
-```
+VR needs a headset to test. The `-vrtest` / `-vrframes` harness was removed along with the
+dead per-eye rendering path, so there is no headless VR run.

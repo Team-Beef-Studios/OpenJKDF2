@@ -62,6 +62,14 @@ macro(plat_link_and_package)
     if(TARGET_USE_VR)
         set_target_properties(${BIN_NAME} PROPERTIES OUTPUT_NAME "jkdf2xr")
     endif()
+
+    # Emit a PDB for the optimised build. /Zi and /DEBUG add symbols alongside the exe without
+    # changing code generation, so exchndl crash reports name the function and line instead of a
+    # bare address. /OPT:REF,ICF restore the stripping that /DEBUG otherwise turns off.
+    target_compile_options(${BIN_NAME} PRIVATE $<$<CONFIG:Release>:/Zi>)
+    target_compile_options(sith_engine PRIVATE $<$<CONFIG:Release>:/Zi>)
+    target_link_options(${BIN_NAME} PRIVATE
+        $<$<CONFIG:Release>:/DEBUG> $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF>)
     set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
     set(THREADS_PREFER_PTHREAD_FLAG TRUE)
     find_package(Threads REQUIRED)

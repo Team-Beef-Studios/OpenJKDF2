@@ -31,6 +31,16 @@ void stdVR_Shutdown(void);
 int stdVR_CreateSession(void* pGLContext);
 void stdVR_DestroySession(void);
 int stdVR_IsSessionRunning(void);
+int stdVR_IsExitRequested(void);        // Runtime asked the app to quit (universal menu)
+flex_t stdVR_GetEyeOffsetWorld(void);   // Half the eye separation, in game units (0 when VR is off)
+
+// Face-button roles. Lower pair (A/X) follows the movement stick, upper pair (B/Y) the weapon
+// hand. Use these rather than the STDVR_BTN_* constants directly - see stdVR.c for why.
+uint32_t stdVR_GetJumpButton(void);
+uint32_t stdVR_GetActivateButton(void);
+uint32_t stdVR_GetAltFireButton(void);
+uint32_t stdVR_GetMenuButton(void);
+int stdVR_GetButtonHand(uint32_t btn);
 void stdVR_PollEvents(void);            // Poll OpenXR events (call every frame)
 
 // Frame timing (match OpenXR frame cadence)
@@ -197,6 +207,13 @@ static inline void stdVR_Shutdown(void) {}
 static inline int stdVR_CreateSession(void* ctx) { (void)ctx; return 0; }
 static inline void stdVR_DestroySession(void) {}
 static inline int stdVR_IsSessionRunning(void) { return 0; }
+static inline int stdVR_IsExitRequested(void) { return 0; }
+static inline flex_t stdVR_GetEyeOffsetWorld(void) { return 0.0; }
+static inline uint32_t stdVR_GetJumpButton(void) { return 0; }
+static inline uint32_t stdVR_GetActivateButton(void) { return 0; }
+static inline uint32_t stdVR_GetAltFireButton(void) { return 0; }
+static inline uint32_t stdVR_GetMenuButton(void) { return 0; }
+static inline int stdVR_GetButtonHand(uint32_t btn) { (void)btn; return 0; }
 static inline void stdVR_PollEvents(void) {}
 static inline int stdVR_WaitFrame(void) { return 0; }
 static inline int stdVR_BeginFrame(void) { return 0; }

@@ -52,8 +52,8 @@ static void jkStrings_RegisterVRStrings(stdStrTable* pTable)
     jkStrings_RegisterString(pTable, "GUIEXT_VR_PROMPT_FORCE_WHEEL",      L"Hold the %ls grip to see and select your Force powers");
     jkStrings_RegisterString(pTable, "GUIEXT_VR_PROMPT_FORCE_USE",        L"Press the %ls trigger to use the selected Force power");
     jkStrings_RegisterString(pTable, "GUIEXT_VR_PROMPT_ALT_FIRE",         L"Fire with the %ls trigger, alt-fire with %ls");
-    jkStrings_RegisterString(pTable, "GUIEXT_VR_PROMPT_JUMP",                 L"Press A to jump");
-    jkStrings_RegisterString(pTable, "GUIEXT_VR_PROMPT_ACTIVATE",             L"Press X to open doors and use switches");
+    jkStrings_RegisterString(pTable, "GUIEXT_VR_PROMPT_JUMP",                 L"Press %ls to jump");
+    jkStrings_RegisterString(pTable, "GUIEXT_VR_PROMPT_ACTIVATE",             L"Press %ls to open doors and use switches");
     jkStrings_RegisterString(pTable, "GUIEXT_VR_PROMPT_HOLOMAP",              L"Click the %ls thumbstick for the 3D map");
     jkStrings_RegisterString(pTable, "GUIEXT_VR_PROMPT_ITEMS",                L"Hold the %ls grip and push the stick to reach your items");
     jkStrings_RegisterString(pTable, "GUIEXT_VR_PROMPT_DEATH_LOAD",           L"Press Y for the menu, then Load to restore your last save");

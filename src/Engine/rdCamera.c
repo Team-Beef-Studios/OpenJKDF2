@@ -788,8 +788,8 @@ void rdCamera_SetVRTangents(float tanLeft, float tanRight, float tanUp, float ta
         // clipping" - bits missing from the gun). The projection tangents (rdCamera_vrTan*) are
         // UNCHANGED so the NDC mapping / FOV is identical; only the CPU clip planes are loosened and
         // the GPU clips the surplus at NDC. (Removing this margin re-introduced the weapon clipping.)
-        float hMargin = 0.50f * (tanLeft + tanRight) * 0.5f;
-        float vMargin = 0.50f * (tanUp + tanDown) * 0.5f;
+        float hMargin = VR_CLIP_FRUSTUM_MARGIN * (tanLeft + tanRight) * 0.5f;
+        float vMargin = VR_CLIP_FRUSTUM_MARGIN * (tanUp + tanDown) * 0.5f;
         frustum->farLeft = -(tanLeft + hMargin);
         frustum->right = tanRight + hMargin;
         frustum->farTop = tanUp + vMargin;

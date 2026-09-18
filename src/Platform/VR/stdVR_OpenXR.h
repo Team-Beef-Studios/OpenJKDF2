@@ -62,6 +62,7 @@ void stdVR_OpenXR_StopHaptic(int hand);
 // Utility
 void stdVR_OpenXR_RecenterView(void);
 const char* stdVR_OpenXR_GetRuntimeName(void);
+int stdVR_OpenXR_IsExitRequested(void);
 
 // Desktop mirror: blit the last-rendered left-eye VR buffer to the SDL window default framebuffer.
 // stdVR_mirrorFlip: 0=none,1=flipY,2=flipX,3=flipXY (cycled with F9).

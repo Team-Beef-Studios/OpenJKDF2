@@ -205,6 +205,7 @@ extern "C" void VR_Log(const char* fmt, ...)
         va_start(args2, fmt);
         vfprintf(vrLogFile, fmt, args2);
         va_end(args2);
+        fflush(vrLogFile); // Added: a killed session would otherwise lose the buffered tail
     }
 
     va_end(args);
@@ -222,6 +223,14 @@ static XrSpace xrStageSpace = XR_NULL_HANDLE;
 static XrSpace xrViewSpace = XR_NULL_HANDLE;
 static XrSessionState xrSessionState = XR_SESSION_STATE_UNKNOWN;
 static bool xrSessionRunning = false;
+
+// Added: set when the runtime tells the app to quit (the universal menu's Exit). Without it
+// the main loop never learns, and Window.c keeps rebuilding the session once a second.
+static bool xrExitRequested = false;
+
+// Added: accumulated recenter offset of xrLocalSpace against the runtime's own LOCAL space.
+static float xrRecenterYaw = 0.0f;                  // radians
+static XrVector3f xrRecenterPos = { 0.0f, 0.0f, 0.0f };
 
 // Platform-specific swapchain image type
 #ifdef __ANDROID__
@@ -886,6 +895,9 @@ extern "C" int stdVR_OpenXR_Init(void)
 extern "C" void stdVR_OpenXR_Shutdown(void)
 {
     VR_Log("stdVR_OpenXR: Shutting down...\n");
+    // The MotS relaunch path in main.c re-enters the main loop, so a stale request would
+    // quit the new run immediately.
+    xrExitRequested = false;
     if (xrInstance != XR_NULL_HANDLE) {
         xrDestroyInstance(xrInstance);
         xrInstance = XR_NULL_HANDLE;
@@ -1327,6 +1339,10 @@ extern "C" int stdVR_OpenXR_CreateSession(void* pGLContext)
     if (xrSession != XR_NULL_HANDLE) {
         return 1; // Already created
     }
+
+    xrExitRequested = false;
+    xrRecenterYaw = 0.0f;
+    xrRecenterPos = { 0.0f, 0.0f, 0.0f };
 
     VR_Log("stdVR_OpenXR: Creating session...\n");
 
@@ -1818,6 +1834,7 @@ static void HandleSessionStateChange(XrSessionState newState)
             VR_Log("stdVR_OpenXR: Session exiting or loss pending\n");
             xrSessionRunning = false;
             stdVR_clientInfo.bSessionRunning = 0;
+            xrExitRequested = true; // Added: ask the main loop to shut down
             break;
         case XR_SESSION_STATE_IDLE:
             VR_Log("stdVR_OpenXR: Session idle\n");
@@ -1847,6 +1864,7 @@ static void PollEvents(void)
             }
             case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
                 VR_Log("stdVR_OpenXR: Instance loss pending\n");
+                xrExitRequested = true; // Added: the instance is going away; quit rather than retry
                 break;
             case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED:
                 VR_Log("stdVR_OpenXR: Interaction profile changed\n");
@@ -2002,6 +2020,13 @@ static bool stdVR_OpenXR_CreateMultiViewSwapchainResources(void)
     vrMultiViewWidth = mvWidth;
     vrMultiViewHeight = mvHeight;
     vrMultiViewEnabled = true;
+
+    // Added: these were set once at startup from the runtime's UNSCALED recommended size and
+    // never updated, so any supersampling other than 1.0 left the HUD and the weapon wheel
+    // laid out for a buffer they were no longer drawn into.
+    stdVR_clientInfo.renderWidth = mvWidth;
+    stdVR_clientInfo.renderHeight = mvHeight;
+    std3D_SetVRTargetSize(mvWidth, mvHeight);
     VR_Log("stdVR_OpenXR: MultiView swapchain created - %dx%d (ss=%.2f), %u images with per-image FBOs\n",
         mvWidth, mvHeight, (double)stdVR_config.supersampling, mvImageCount);
     return true;
@@ -2218,11 +2243,19 @@ extern "C" int stdVR_OpenXR_EndFrame(void)
 
             float yawRad = DEG2RAD(stdVR_clientInfo.screenLayerSnapYaw);
 
-            // Position: player's snap position + forward offset based on snap yaw
+            // Altered: the snap position is stored in JKDF2 axes (x=right, y=forward, z=up)
+            // but the quad pose is OpenXR (x=right, y=up, z=back). Using it raw fed the head
+            // HEIGHT in as the forward coordinate and threw the forward component away, which
+            // offset the panel sideways by a fixed world vector — the menu appeared to sit
+            // some 30 degrees off whichever way the player faced.
+            float headX =  stdVR_clientInfo.screenLayerSnapPos.x;
+            float headY =  stdVR_clientInfo.screenLayerSnapPos.z;
+            float headZ = -stdVR_clientInfo.screenLayerSnapPos.y;
+
             XrVector3f pos = {
-                stdVR_clientInfo.screenLayerSnapPos.x - std::sin(yawRad) * distance,
-                0.f,  // Fixed height (comfortable viewing height)
-                stdVR_clientInfo.screenLayerSnapPos.z - std::cos(yawRad) * distance
+                headX - std::sin(yawRad) * distance,
+                headY,
+                headZ - std::cos(yawRad) * distance
             };
             quadLayer.pose.position = pos;
 
@@ -2504,13 +2537,9 @@ extern "C" int stdVR_OpenXR_PrepareEyeBuffer(int eye)
     // Tell std3D to route all "window" FBO bindings to our VR FBO
     std3D_SetVRTargetFBO(fbo, width, height);
 
-    // Clear the buffer - DEBUG: use a visible color to verify texture binding works
-    // Use different colors for left/right eye to confirm proper eye routing
-    if (eye == 0) {
-        glClearColor(1.0f, 0.0f, 0.0f, 1.0f);  // BRIGHT RED for left eye
-    } else {
-        glClearColor(0.0f, 0.0f, 1.0f, 1.0f);  // BRIGHT BLUE for right eye
-    }
+    // Altered: this cleared the eyes to red and blue to prove eye routing. A frame that
+    // slipped through unrendered would then flash in the headset, so clear to black.
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 #if STDVR_HOTPATH_DEBUG
@@ -3481,20 +3510,64 @@ extern "C" void stdVR_OpenXR_StopHaptic(int hand)
 
 extern "C" void stdVR_OpenXR_RecenterView(void)
 {
-    // Recreate local space to recenter
-    if (xrSession != XR_NULL_HANDLE && xrLocalSpace != XR_NULL_HANDLE) {
-        xrDestroySpace(xrLocalSpace);
-
-        XrReferenceSpaceCreateInfo spaceInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
-        spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
-        spaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
-        xrCreateReferenceSpace(xrSession, &spaceInfo, &xrLocalSpace);
+    // Altered: this used to recreate LOCAL with an identity offset, which the spec says gives
+    // back the same space — so recentering did nothing at all. Put the head's current yaw and
+    // ground position into poseInReferenceSpace instead.
+    //
+    // poseInReferenceSpace is measured against the runtime's own LOCAL space, not against the
+    // space we are currently using, so the offset has to accumulate. Yaw-only rotations about
+    // Y compose by adding the angles, which is why they are kept as a scalar.
+    if (xrSession == XR_NULL_HANDLE || xrLocalSpace == XR_NULL_HANDLE || xrViewSpace == XR_NULL_HANDLE) {
+        return;
     }
+
+    XrSpaceLocation headLoc = { XR_TYPE_SPACE_LOCATION };
+    if (XR_FAILED(xrLocateSpace(xrViewSpace, xrLocalSpace, xrFrameState.predictedDisplayTime, &headLoc))) {
+        return;
+    }
+
+    const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT
+                                      | XR_SPACE_LOCATION_POSITION_VALID_BIT;
+    if ((headLoc.locationFlags & needed) != needed) {
+        return; // Tracking is not up yet; leave the origin where it is
+    }
+
+    const XrQuaternionf& q = headLoc.pose.orientation;
+    float fx = -2.0f * (q.x * q.z + q.w * q.y);
+    float fz = 2.0f * (q.x * q.x + q.y * q.y) - 1.0f;
+    float headYaw = std::atan2(-fx, -fz);
+
+    float sinYaw = std::sin(xrRecenterYaw);
+    float cosYaw = std::cos(xrRecenterYaw);
+    xrRecenterPos.x += cosYaw * headLoc.pose.position.x + sinYaw * headLoc.pose.position.z;
+    xrRecenterPos.z += -sinYaw * headLoc.pose.position.x + cosYaw * headLoc.pose.position.z;
+    xrRecenterYaw += headYaw;
+
+    XrReferenceSpaceCreateInfo spaceInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
+    spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    spaceInfo.poseInReferenceSpace.position = xrRecenterPos;
+    spaceInfo.poseInReferenceSpace.orientation = QuaternionFromAxisAngle({ 0.0f, 1.0f, 0.0f }, xrRecenterYaw);
+
+    XrSpace newSpace = XR_NULL_HANDLE;
+    if (XR_FAILED(xrCreateReferenceSpace(xrSession, &spaceInfo, &newSpace))) {
+        return; // Keep the old space rather than losing tracking entirely
+    }
+
+    xrDestroySpace(xrLocalSpace);
+    xrLocalSpace = newSpace;
+
+    VR_Log("stdVR_OpenXR: Recentered - yaw=%.1f deg, pos=(%.2f, %.2f)\n",
+        xrRecenterYaw * 180.0f / 3.14159265f, xrRecenterPos.x, xrRecenterPos.z);
 }
 
 extern "C" const char* stdVR_OpenXR_GetRuntimeName(void)
 {
     return xrRuntimeName;
+}
+
+extern "C" int stdVR_OpenXR_IsExitRequested(void)
+{
+    return xrExitRequested ? 1 : 0;
 }
 
 #endif // PLATFORM_VR

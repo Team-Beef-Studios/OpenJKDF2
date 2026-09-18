@@ -9,6 +9,7 @@
 #include "Platform/VR/stdVR_WeaponOffsets.h"
 #include "Platform/VR/stdVR_AlignmentTool.h"
 #include "Primitives/rdVector.h"
+#include "General/stdMath.h"
 #include "Primitives/rdMatrix.h"
 #include "Primitives/rdPrimit3.h"
 #include "Platform/std3D.h"
@@ -40,6 +41,7 @@ int std3D_vrDebugMode = 0;
 static sithThing* stdVR_pCrosshairThing = NULL;
 
 // Frame state tracking
+static int stdVR_bPendingScreenLayerResnap = 0;  // Re-place the menu after a recenter
 static int stdVR_bFramePending = 0;  // WaitFrame called but EndFrame not yet
 static int stdVR_bFrameInProgress = 0;  // BeginFrame called but EndFrame not yet
 
@@ -193,6 +195,69 @@ void stdVR_DestroySession(void)
 int stdVR_IsSessionRunning(void)
 {
     return stdVR_clientInfo.bSessionRunning;
+}
+
+// Added: lateral distance an eye sits from the centre view, in GAME units. The CPU culls
+// surfaces and adjoins from the centre point, but MultiView renders from eyes offset either
+// side of it, so a plane the centre is just behind can still be visible to one eye. Callers
+// widen their facing tests by this much.
+flex_t stdVR_GetEyeOffsetWorld(void)
+{
+    if (!stdVR_bEnabled || !stdVR_clientInfo.bSessionRunning) {
+        return 0.0;
+    }
+
+    float dx = stdVR_clientInfo.eyes[1].viewMatrix.scale.x - stdVR_clientInfo.eyes[0].viewMatrix.scale.x;
+    float dy = stdVR_clientInfo.eyes[1].viewMatrix.scale.y - stdVR_clientInfo.eyes[0].viewMatrix.scale.y;
+    float dz = stdVR_clientInfo.eyes[1].viewMatrix.scale.z - stdVR_clientInfo.eyes[0].viewMatrix.scale.z;
+    float ipd = sqrtf(dx * dx + dy * dy + dz * dz);
+
+    float worldScale = stdVR_config.worldScale;
+    if (worldScale <= 0.0f) worldScale = 1.0f;
+
+    // The raw half-IPD is the exact geometric bound, but worldScale shrinks it to almost
+    // nothing in game units, so add the tunable slack from engine_config.h on top.
+    return (flex_t)(ipd * 0.5f * worldScale) + (flex_t)VR_CULL_FACING_MARGIN;
+}
+
+// Face-button roles. Both pairs move, but for different reasons, and every call site must
+// agree or the tutorial prompts teach the wrong button.
+//
+// Lower pair (A right / X left) follows the MOVEMENT stick: jump must not share a thumb with
+// movement, or you cannot do both at once.
+//
+// Upper pair (B right / Y left) follows the WEAPON hand: you do not alt-fire with your off
+// hand. The menu takes whichever upper button alt-fire did not. The menu is still always
+// reachable from the headset's own menu button, so it does not need a fixed letter.
+uint32_t stdVR_GetJumpButton(void)
+{
+    return stdVR_config.bSwapSticks ? STDVR_BTN_X : STDVR_BTN_A;
+}
+
+uint32_t stdVR_GetActivateButton(void)
+{
+    return stdVR_config.bSwapSticks ? STDVR_BTN_A : STDVR_BTN_X;
+}
+
+uint32_t stdVR_GetAltFireButton(void)
+{
+    return (stdVR_config.dominantHand == STDVR_CONTROLLER_LEFT) ? STDVR_BTN_Y : STDVR_BTN_B;
+}
+
+uint32_t stdVR_GetMenuButton(void)
+{
+    return (stdVR_config.dominantHand == STDVR_CONTROLLER_LEFT) ? STDVR_BTN_B : STDVR_BTN_Y;
+}
+
+// The controller a face button lives on, for haptics.
+int stdVR_GetButtonHand(uint32_t btn)
+{
+    return (btn == STDVR_BTN_X || btn == STDVR_BTN_Y) ? STDVR_CONTROLLER_LEFT : STDVR_CONTROLLER_RIGHT;
+}
+
+int stdVR_IsExitRequested(void)
+{
+    return stdVR_bInitted ? stdVR_OpenXR_IsExitRequested() : 0;
 }
 
 void stdVR_PollEvents(void)
@@ -585,6 +650,11 @@ void stdVR_UpdateTracking(void)
 
     stdVR_OpenXR_UpdateTracking();
 
+    if (stdVR_bPendingScreenLayerResnap) {
+        stdVR_bPendingScreenLayerResnap = 0;
+        stdVR_UpdateScreenLayerSnap();
+    }
+
     // Update move direction based on config
     if (stdVR_config.moveDirection == STDVR_MOVE_HEAD) {
         rdVector_Copy3(&stdVR_clientInfo.moveForward, &stdVR_clientInfo.hmdPoseMatrix.lvec);
@@ -847,6 +917,12 @@ void stdVR_RecenterView(void)
 
     // The tracking origin just moved; drop the head-delta reference so we don't lurch the body.
     stdVR_ResetHeadDelta();
+
+    // Added: an open menu was placed against the old origin, so re-place it once the next
+    // tracking update has caught up with the new one.
+    if (stdVR_clientInfo.bUseScreenLayer) {
+        stdVR_bPendingScreenLayerResnap = 1;
+    }
 }
 
 void stdVR_GetRecommendedRenderSize(int* pWidth, int* pHeight)
@@ -1109,6 +1185,31 @@ stdVR_ControllerState* stdVR_GetOffhandController(void)
     return stdVR_GetController(1 - stdVR_config.dominantHand);
 }
 
+// Added: build the per-weapon alignment angles for one hand. The weapon visual and the fire
+// origin both need these and used to carry separate copies, which drifted apart.
+//
+// The left grip frame is the right frame mirrored across local X (OpenXR grip +X is the palm
+// normal). Under that mirror a rotation about X keeps its sign and rotations about the other
+// two axes flip, so pitch stays and yaw and roll negate. Degrees.
+static void stdVR_BuildWeaponRotationAdjust(int hand, const stdVR_WeaponOffset* pOffset,
+                                            int bApplyOffset, int bApplyGlobalPitch,
+                                            rdVector3* pAnglesOut)
+{
+    float pitchAdjust = ((bApplyOffset && pOffset) ? pOffset->pitchAdjust : 0.f)
+                      + (bApplyGlobalPitch ? stdVR_motionConfig.weaponPitchAdjust : 0.f);
+    float yawAdjust = (bApplyOffset && pOffset) ? pOffset->yawAdjust : 0.f;
+    float rollAdjust = (bApplyOffset && pOffset) ? pOffset->rollAdjust : 0.f;
+
+    if (hand == STDVR_CONTROLLER_LEFT) {
+        yawAdjust = -yawAdjust;
+        rollAdjust = -rollAdjust;
+    }
+
+    pAnglesOut->x = pitchAdjust;
+    pAnglesOut->y = yawAdjust;
+    pAnglesOut->z = rollAdjust;
+}
+
 // Transform controller position to game world coordinates
 // Takes controller position (in VR tracking space) and outputs world position
 // This must match the position calculation in stdVR_GetControllerViewMatrix for
@@ -1162,15 +1263,12 @@ void stdVR_ControllerToWorld(int hand, rdVector3* pWorldPos, int useOffsets)
     // no longer moves the point that projectiles come from. Only the global controller pitch
     // adjustment affects the fire path.
     stdVR_WeaponOffset* pWeaponOffset = stdVR_GetCurrentWeaponOffset();
-    float pitchAdjust = ((useOffsets && pWeaponOffset) ? pWeaponOffset->pitchAdjust : 0.f)
-                      + stdVR_motionConfig.weaponPitchAdjust;
-    float yawAdjust = (useOffsets && pWeaponOffset) ? pWeaponOffset->yawAdjust : 0.f;
-    float rollAdjust = (useOffsets && pWeaponOffset) ? pWeaponOffset->rollAdjust : 0.f;
+    rdVector3 pitchAngles;
+    stdVR_BuildWeaponRotationAdjust(hand, pWeaponOffset, useOffsets, 1, &pitchAngles);
 
     rdMatrix34 adjustedPose;
-    if (pitchAdjust != 0.0f || yawAdjust != 0.0f || rollAdjust != 0.0f) {
+    if (pitchAngles.x != 0.0f || pitchAngles.y != 0.0f || pitchAngles.z != 0.0f) {
         rdMatrix34 pitchRot;
-        rdVector3 pitchAngles = { pitchAdjust, yawAdjust, rollAdjust };
         rdMatrix_BuildRotate34(&pitchRot, &pitchAngles);
         rdMatrix_Multiply34(&adjustedPose, &pCtrl->poseMatrix, &pitchRot);
     } else {
@@ -1395,20 +1493,17 @@ static int stdVR_GetControllerViewMatrixInternal(int hand, rdMatrix34* pViewMat,
 
     // Use per-weapon offsets if available, otherwise fall back to global config
     stdVR_WeaponOffset* pWeaponOffset = bApplyWeaponOffset ? stdVR_GetCurrentWeaponOffset() : NULL;
-    float pitchAdjust = (pWeaponOffset ? pWeaponOffset->pitchAdjust : 0.f)
-                      + (bApplyWeaponOffset ? stdVR_motionConfig.weaponPitchAdjust : 0.f);
-    float yawAdjust = pWeaponOffset ? pWeaponOffset->yawAdjust : 0.f;
-    float rollAdjust = pWeaponOffset ? pWeaponOffset->rollAdjust : 0.f;
+    rdVector3 pitchAngles;
+    stdVR_BuildWeaponRotationAdjust(hand, pWeaponOffset, bApplyWeaponOffset, bApplyWeaponOffset,
+                                    &pitchAngles);
 
     // First apply the rotation adjustment to the controller pose if configured
     rdMatrix34 adjustedPose;
-    if (pitchAdjust != 0.0f || yawAdjust != 0.0f || rollAdjust != 0.0f) {
-        // Build the rotation matrix. rdMatrix_BuildRotate34 takes pitch, yaw, roll.
+    if (pitchAngles.x != 0.0f || pitchAngles.y != 0.0f || pitchAngles.z != 0.0f) {
         rdMatrix34 pitchRot;
-        rdVector3 pitchAngles = { pitchAdjust, yawAdjust, rollAdjust };
         rdMatrix_BuildRotate34(&pitchRot, &pitchAngles);
 
-        // Apply pitch adjustment: adjustedPose = controllerPose * pitchRot
+        // adjustedPose = controllerPose * rotation
         rdMatrix_Multiply34(&adjustedPose, &pCtrl->poseMatrix, &pitchRot);
     } else {
         rdMatrix_Copy34(&adjustedPose, &pCtrl->poseMatrix);
@@ -1990,12 +2085,68 @@ void stdVR_UpdateMenuCursor(void)
     int controllerIndex = stdVR_config.dominantHand;
     stdVR_ControllerState* pController = &stdVR_clientInfo.controllers[controllerIndex];
 
-    stdVR_clientInfo.menuCursorX = -sinf(DEG2RAD(pController->orientation.y - stdVR_clientInfo.screenLayerSnapYaw)) + 0.5f;
-    stdVR_clientInfo.menuCursorY = (float)(-pController->orientation.x / 45.0f) + 0.5f;
+    // Altered: cast the controller's aim ray at the menu panel instead of mapping raw
+    // controller angles. The old map spread the whole panel width across 60 degrees while
+    // the panel subtends about 74, and it compared the hand's yaw against the HEAD's snap
+    // yaw, so the cursor never landed where the player aimed.
+    {
+        float yawRad = DEG2RAD(stdVR_clientInfo.screenLayerSnapYaw);
+        float sinYaw = sinf(yawRad);
+        float cosYaw = cosf(yawRad);
+
+        // Panel basis in JKDF2 axes (x=right, y=forward, z=up), matching the quad layer.
+        rdVector3 panelFwd = { -sinYaw, cosYaw, 0.0f };
+        rdVector3 panelRight = { cosYaw, sinYaw, 0.0f };
+
+        float distance = stdVR_clientInfo.screenLayerDistance;
+        if (distance <= 0.0f) distance = 4.0f;
+        float panelWidth = stdVR_clientInfo.screenLayerWidth;
+        if (panelWidth <= 0.0f) panelWidth = 6.0f;
+        float panelHeight = stdVR_clientInfo.screenLayerHeight;
+        if (panelHeight <= 0.0f) panelHeight = 4.5f;
+
+        rdVector3 panelCenter;
+        panelCenter.x = stdVR_clientInfo.screenLayerSnapPos.x + panelFwd.x * distance;
+        panelCenter.y = stdVR_clientInfo.screenLayerSnapPos.y + panelFwd.y * distance;
+        panelCenter.z = stdVR_clientInfo.screenLayerSnapPos.z;
+
+        // The grip pose needs the same -90 pitch the aim path uses before its Y axis points
+        // where the player points.
+        rdMatrix34 aimPose, pitchRot;
+        rdVector3 pitchAngles = { -90.0f, 0.0f, 0.0f };
+        rdMatrix_BuildRotate34(&pitchRot, &pitchAngles);
+        rdMatrix_Multiply34(&aimPose, &pController->poseMatrix, &pitchRot);
+
+        rdVector3 rayDir = aimPose.lvec;
+        rdVector3 rayOrigin = pController->position;
+
+        float denom = rdVector_Dot3(&rayDir, &panelFwd);
+        if (denom > 0.001f) {
+            rdVector3 toCenter;
+            toCenter.x = panelCenter.x - rayOrigin.x;
+            toCenter.y = panelCenter.y - rayOrigin.y;
+            toCenter.z = panelCenter.z - rayOrigin.z;
+
+            float t = rdVector_Dot3(&toCenter, &panelFwd) / denom;
+            if (t > 0.0f) {
+                rdVector3 rel;
+                rel.x = rayOrigin.x + rayDir.x * t - panelCenter.x;
+                rel.y = rayOrigin.y + rayDir.y * t - panelCenter.y;
+                rel.z = rayOrigin.z + rayDir.z * t - panelCenter.z;
+
+                float u = rdVector_Dot3(&rel, &panelRight) / panelWidth + 0.5f;
+                float v = 0.5f - rel.z / panelHeight;
+
+                stdVR_clientInfo.menuCursorX = stdMath_Clamp(u, 0.0f, 1.0f);
+                stdVR_clientInfo.menuCursorY = stdMath_Clamp(v, 0.0f, 1.0f);
+            }
+        }
+        // A ray that misses the panel keeps the last position, so the cursor does not jump.
+    }
 
     // Convert to screen pixel coordinates (assuming 640x480 menu resolution)
-    stdVR_clientInfo.menuCursorScreenX = (int)(stdVR_clientInfo.menuCursorX * 640.0f);
-    stdVR_clientInfo.menuCursorScreenY = (int)(stdVR_clientInfo.menuCursorY * 480.0f);
+    stdVR_clientInfo.menuCursorScreenX = stdMath_ClampInt((int)(stdVR_clientInfo.menuCursorX * 640.0f), 0, 639);
+    stdVR_clientInfo.menuCursorScreenY = stdMath_ClampInt((int)(stdVR_clientInfo.menuCursorY * 480.0f), 0, 479);
 
     // Handle trigger input for "clicks"
     // Use the trigger from the same controller
