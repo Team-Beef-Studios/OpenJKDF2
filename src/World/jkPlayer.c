@@ -36,6 +36,8 @@
 #ifdef PLATFORM_VR
 #include "Platform/VR/stdVR.h"
 #include "Platform/VR/stdVR_WeaponWheel.h"
+#include "Platform/VR/stdVR_Scope.h"
+#include "Platform/VR/stdVR_TwoHanded.h"
 #endif
 
 // DSi has *plenty* of time to read the text.
@@ -105,6 +107,8 @@ int jkPlayer_vrMoveQuakeFeel = 1;       // 0 = stock JK thrust/drag movement
 flex_t jkPlayer_vrMoveAccel = 14.0;     // Approach rate toward top speed (1/sec)
 flex_t jkPlayer_vrMoveFriction = 10.0;  // Slow-down rate when releasing the stick (1/sec)
 flex_t jkPlayer_vrMoveStopFrac = 0.35;  // Below this fraction of top speed, decel goes linear
+flex_t jkPlayer_vrScopeEngageDist = 0.25; // Rifle Scope zooms when the weapon hand is this close to the head (m)
+flex_t jkPlayer_vrScopeAimSmooth = 0.5;   // Rifle Scope aim smoothing per 72Hz frame (0 = raw, 0.95 = heavy)
 // Baked-HUD layout (multiview eye buffer), tunable in the VR Options menu. Half-extents and
 // centre are in NDC; depth is the virtual distance in metres for the per-eye convergence.
 float jkPlayer_vrHudWidth  = 0.60f;     // HUD half-width  in NDC (smaller = narrower)
@@ -128,6 +132,19 @@ static rdModel3* pVROffhandBoundModel = NULL;
 // K_Lhand node index inside pVROffhandBoundModel. It differs per model: 2 in the fists, 3 in
 // the sequencer, and the gun models have no left hand at all.
 static int vrOffhandLhandNodeIdx = -1;
+
+// Added: the MotS Rifle Scope's POV model is nullpov.3do. In VR it is drawn as the rifle
+// (sscv.3do is byte-identical to strv.3do) with the scope pickup model mounted on top.
+static rdThing vrScopeRifleThing;
+static rdThing vrScopeSightThing;
+static int bVRScopeThingsReady = 0;
+
+// Sight placement in the K_Rhand mesh space of strv.3do, measured from its STRV* faces: the
+// rifle runs along -Z with its top at +Y. The pickup model is world-scale, hence the shrink.
+#define JKPLAYER_VR_SCOPE_SIGHT_X (-0.0009f)
+#define JKPLAYER_VR_SCOPE_SIGHT_Y (0.0165f)
+#define JKPLAYER_VR_SCOPE_SIGHT_Z (-0.0005f)
+#define JKPLAYER_VR_SCOPE_SIGHT_SCALE (0.35f)
 
 // VR "hands only" rendering: show just the hand by suppressing the meshes of its ancestor
 // arm nodes (shoulder/upper-arm/forearm). Amputation can't do this because it hides a node AND
@@ -178,6 +195,156 @@ static void jkPlayer_VRRestoreArmMeshes(jkPlayerVRSavedMesh* saved, int n)
     for (int i = 0; i < n; i++) {
         saved[i].node->meshIdx = saved[i].meshIdx;
     }
+}
+
+static rdThing* jkPlayer_VRGetScopeRifleThing(void)
+{
+    if (!bVRScopeThingsReady) {
+        rdModel3* pRifle = sithModel_LoadEntry("strv.3do", 1);
+        rdModel3* pSight = sithModel_LoadEntry("scpe.3do", 1);
+        if (!pRifle || !pSight) return NULL;
+
+        sithThing* pActorThing = playerThings[playerThingIdx].actorThing;
+        rdThing_NewEntry(&vrScopeRifleThing, pActorThing);
+        rdThing_NewEntry(&vrScopeSightThing, pActorThing);
+        if (!rdThing_SetModel3(&vrScopeRifleThing, pRifle) || !rdThing_SetModel3(&vrScopeSightThing, pSight)) {
+            rdThing_FreeEntry(&vrScopeRifleThing);
+            rdThing_FreeEntry(&vrScopeSightThing);
+            return NULL;
+        }
+        bVRScopeThingsReady = 1;
+    }
+    return &vrScopeRifleThing;
+}
+
+// Where the off-hand grips a two-handed weapon, found from the drawn model itself so it suits
+// every weapon: the vertices are projected onto the barrel axis, the slice level with the real
+// off-hand (kept to the front of the weapon) is taken, and the hand goes under it. The point is
+// picked once per grab and then held in the model's root space - re-picking it every frame let
+// the hand slide and jitter along the barrel.
+static int bVROffhandLockValid = 0;
+static rdVector3 vrOffhandLockPos;
+static int bVROffhandLockPicked = 0;
+static rdVector3 vrOffhandLockLocal;
+static rdModel3* pVROffhandLockModel = NULL;
+
+#define JKPLAYER_VR_LOCK_FRONT_MIN (0.4f)   // fractions of the weapon's length along the barrel
+#define JKPLAYER_VR_LOCK_FRONT_MAX (0.9f)
+#define JKPLAYER_VR_LOCK_SLAB      (0.06f)
+
+// Root-space coordinates of a world point. The root basis is orthogonal but carries the weapon
+// scale (and a sign flip when mirrored), so divide by each axis' squared length.
+static void jkPlayer_VRWorldToRoot(const rdMatrix34* pRoot, const rdVector3* pWorld, rdVector3* pOut)
+{
+    rdVector3 rel;
+    rdVector_Sub3(&rel, pWorld, &pRoot->scale);
+    pOut->x = rdVector_Dot3(&rel, &pRoot->rvec) / rdVector_Dot3(&pRoot->rvec, &pRoot->rvec);
+    pOut->y = rdVector_Dot3(&rel, &pRoot->lvec) / rdVector_Dot3(&pRoot->lvec, &pRoot->lvec);
+    pOut->z = rdVector_Dot3(&rel, &pRoot->uvec) / rdVector_Dot3(&pRoot->uvec, &pRoot->uvec);
+}
+
+static void jkPlayer_VRComputeOffhandLock(rdThing* pThing)
+{
+    bVROffhandLockValid = 0;
+    if (!stdVR_TwoHanded_IsStabilised() || !pThing || !pThing->model3 || !pThing->hierarchyNodeMatrices) {
+        bVROffhandLockPicked = 0;
+        return;
+    }
+    if (pThing->model3 != pVROffhandLockModel) {
+        bVROffhandLockPicked = 0;
+        pVROffhandLockModel = pThing->model3;
+    }
+    if (bVROffhandLockPicked) {
+        rdMatrix_TransformPoint34(&vrOffhandLockPos, &vrOffhandLockLocal, &pThing->hierarchyNodeMatrices[0]);
+        bVROffhandLockValid = 1;
+        return;
+    }
+
+    int dominant = stdVR_GetDominantHand();
+    rdMatrix34 aim, offhandMat;
+    stdVR_GetControllerWorldMatrix(dominant, &aim);
+    if (!stdVR_GetControllerViewMatrixRaw(1 - dominant, &offhandMat)) return;
+
+    rdModel3* pModel = pThing->model3;
+    rdGeoset* pGeoset = &pModel->geosets[0];
+    float tMin = 1e9f, tMax = -1e9f;
+    for (int pass = 0; pass < 2; pass++) {
+        float tLock = 0.0f, half = 0.0f;
+        if (pass == 1) {
+            if (tMax <= tMin) return;
+            float len = tMax - tMin;
+            rdVector3 rel;
+            rdVector_Sub3(&rel, &offhandMat.scale, &aim.scale);
+            tLock = stdMath_Clamp(rdVector_Dot3(&rel, &aim.lvec),
+                                  tMin + len * JKPLAYER_VR_LOCK_FRONT_MIN, tMin + len * JKPLAYER_VR_LOCK_FRONT_MAX);
+            half = len * JKPLAYER_VR_LOCK_SLAB;
+        }
+
+        rdVector3 sum = {0};
+        float bottom = 1e9f;
+        int n = 0;
+        for (int i = 0; i < pModel->numHierarchyNodes; i++) {
+            rdHierarchyNode* pNode = &pModel->hierarchyNodes[i];
+            if (pNode->meshIdx < 0 || pNode->meshIdx >= pGeoset->numMeshes) continue;
+            if (pThing->amputatedJoints && pThing->amputatedJoints[i]) continue;
+
+            rdMesh* pMesh = &pGeoset->meshes[pNode->meshIdx];
+            for (int v = 0; v < pMesh->numVertices; v++) {
+                rdVector3 w, rel;
+                rdMatrix_TransformPoint34(&w, &pMesh->vertices[v], &pThing->hierarchyNodeMatrices[i]);
+                rdVector_Sub3(&rel, &w, &aim.scale);
+                float t = rdVector_Dot3(&rel, &aim.lvec);
+                if (pass == 0) {
+                    if (t < tMin) tMin = t;
+                    if (t > tMax) tMax = t;
+                    continue;
+                }
+                if (t < tLock - half || t > tLock + half) continue;
+                rdVector_Add3Acc(&sum, &w);
+                float h = rdVector_Dot3(&rel, &aim.uvec);
+                if (h < bottom) bottom = h;
+                n++;
+            }
+        }
+
+        if (pass == 1) {
+            if (!n) return;
+            rdVector_Scale3Acc(&sum, 1.0f / (float)n);
+            // Centre of the slice, dropped to the underside of the barrel.
+            rdVector3 rel;
+            rdVector_Sub3(&rel, &sum, &aim.scale);
+            float centreH = rdVector_Dot3(&rel, &aim.uvec);
+            rdVector_MultAcc3(&sum, &aim.uvec, bottom - centreH);
+            vrOffhandLockPos = sum;
+            jkPlayer_VRWorldToRoot(&pThing->hierarchyNodeMatrices[0], &sum, &vrOffhandLockLocal);
+            bVROffhandLockPicked = 1;
+            bVROffhandLockValid = 1;
+        }
+    }
+}
+
+// Call after the rifle is drawn: its hand-node matrix is then current for this frame.
+static void jkPlayer_VRDrawScopeSight(void)
+{
+    if (!bVRScopeThingsReady) return;
+
+    int handIdx = jkPlayer_VRFindNodeByName(vrScopeRifleThing.model3, "k_rhand");
+    if (handIdx < 0) return;
+
+    // Scope model axes -> rifle mesh axes: its long Y axis along the barrel (-Z), its Z up (+Y).
+    rdMatrix34 mount;
+    rdMatrix_Identity34(&mount);
+    mount.rvec.x = JKPLAYER_VR_SCOPE_SIGHT_SCALE;
+    mount.lvec.x = 0.0f; mount.lvec.y = 0.0f; mount.lvec.z = -JKPLAYER_VR_SCOPE_SIGHT_SCALE;
+    mount.uvec.x = 0.0f; mount.uvec.y = JKPLAYER_VR_SCOPE_SIGHT_SCALE; mount.uvec.z = 0.0f;
+    mount.scale.x = JKPLAYER_VR_SCOPE_SIGHT_X;
+    mount.scale.y = JKPLAYER_VR_SCOPE_SIGHT_Y;
+    mount.scale.z = JKPLAYER_VR_SCOPE_SIGHT_Z;
+
+    rdMatrix34 sightMat;
+    rdMatrix_Multiply34(&sightMat, &vrScopeRifleThing.hierarchyNodeMatrices[handIdx], &mount);
+    vrScopeSightThing.frameTrue = 0;
+    rdThing_Draw(&vrScopeSightThing, &sightMat);
 }
 #endif // PLATFORM_VR
 
@@ -323,6 +490,8 @@ void jkPlayer_StartupVars()
     sithCvar_RegisterFlex("g_vrMoveAccel",               14.0,                      &jkPlayer_vrMoveAccel,              CVARFLAG_LOCAL);
     sithCvar_RegisterFlex("g_vrMoveFriction",            10.0,                      &jkPlayer_vrMoveFriction,           CVARFLAG_LOCAL);
     sithCvar_RegisterFlex("g_vrMoveStopFrac",            0.35,                      &jkPlayer_vrMoveStopFrac,           CVARFLAG_LOCAL);
+    sithCvar_RegisterFlex("g_vrScopeEngageDist",         0.25,                      &jkPlayer_vrScopeEngageDist,        CVARFLAG_LOCAL);
+    sithCvar_RegisterFlex("g_vrScopeAimSmooth",          0.5,                       &jkPlayer_vrScopeAimSmooth,         CVARFLAG_LOCAL);
 #endif
 }
 
@@ -570,6 +739,15 @@ void jkPlayer_Shutdown()
     pVRFistsModel3 = NULL;
     pVROffhandBoundModel = NULL;
     vrOffhandLhandNodeIdx = -1;
+    if (bVRScopeThingsReady) {
+        rdThing_FreeEntry(&vrScopeRifleThing);
+        rdThing_FreeEntry(&vrScopeSightThing);
+        bVRScopeThingsReady = 0;
+    }
+    stdVR_Scope_Reset();
+    stdVR_TwoHanded_Reset();
+    bVROffhandLockPicked = 0;
+    pVROffhandLockModel = NULL;
     stdVR_WeaponWheel_ResetCache();
 #endif
 }
@@ -1172,9 +1350,17 @@ void jkPlayer_DrawPov()
         rdPuppet_UpdateTracks(playerThings[playerThingIdx].povModel.puppet, sithTime_deltaSeconds);
     }
 
+#ifdef PLATFORM_VR
+    // Added: while scoped the rifle and both hands sit on the eye.
+    if (stdVR_Scope_IsEngaged()) {
+        return;
+    }
+#endif
+
     if ( !(sithCamera_currentCamera->cameraPerspective & 0xFC) && sithCamera_currentCamera->primaryFocus == sithWorld_pCurrentWorld->cameraFocus )
     {
         sithThing* player = playerThings[playerThingIdx].actorThing;
+        rdThing* pPovThing = &playerThings[playerThingIdx].povModel;
 
         // TODO: I think this explains some weird duplication
 #ifndef QOL_IMPROVEMENTS
@@ -1271,6 +1457,14 @@ void jkPlayer_DrawPov()
             }
         }
 
+        if (vrMotionWeapon && stdVR_Scope_IsWeaponSelected()) {
+            rdThing* pScopeRifle = jkPlayer_VRGetScopeRifleThing();
+            if (pScopeRifle) {
+                pPovThing = pScopeRifle;
+                pPovThing->frameTrue = 0;
+            }
+        }
+
         if (!vrMotionWeapon) {
             // Fallback: use eye view matrix (HMD-attached weapon)
             if (stdVR_bEnabled && stdVR_GetCurrentEyeViewMatrix(&viewMat)) {
@@ -1361,10 +1555,10 @@ void jkPlayer_DrawPov()
             bVRFistsHandsOnly = 1;
         }
         if (bVRHideLeftArm
-            && playerThings[playerThingIdx].povModel.amputatedJoints
-            && playerThings[playerThingIdx].povModel.model3)
+            && pPovThing->amputatedJoints
+            && pPovThing->model3)
         {
-            rdModel3* model = playerThings[playerThingIdx].povModel.model3;
+            rdModel3* model = pPovThing->model3;
             int lhandIdx = jkPlayer_VRFindNodeByName(model, "k_lhand");
             if (lhandIdx >= 0) {
                 rdHierarchyNode* node = &model->hierarchyNodes[lhandIdx];
@@ -1373,7 +1567,7 @@ void jkPlayer_DrawPov()
                     node = node->parent;
                 }
                 vrAmputatedNodeIdx = node->idx;
-                playerThings[playerThingIdx].povModel.amputatedJoints[vrAmputatedNodeIdx] = 1;
+                pPovThing->amputatedJoints[vrAmputatedNodeIdx] = 1;
             }
         }
 
@@ -1381,8 +1575,8 @@ void jkPlayer_DrawPov()
         // looked up by name because its index differs per model.
         jkPlayerVRSavedMesh vrArmSaved[JKPLAYER_VR_MAX_ARM_NODES];
         int vrArmSavedCount = 0;
-        if (bVRFistsHandsOnly && playerThings[playerThingIdx].povModel.model3) {
-            rdModel3* pPovModel = playerThings[playerThingIdx].povModel.model3;
+        if (bVRFistsHandsOnly && pPovThing->model3) {
+            rdModel3* pPovModel = pPovThing->model3;
             int rhandIdx = jkPlayer_VRFindNodeByName(pPovModel, "k_rhand");
             if (rhandIdx >= 0) {
                 vrArmSavedCount = jkPlayer_VRHideArmKeepHand(pPovModel, rhandIdx, vrArmSaved);
@@ -1412,11 +1606,19 @@ void jkPlayer_DrawPov()
 #ifdef PLATFORM_VR
         if (!stdVR_WeaponWheel_IsActive())
 #endif
-        rdThing_Draw(&playerThings[playerThingIdx].povModel, &viewMat);
+        {
+            rdThing_Draw(pPovThing, &viewMat);
+#ifdef PLATFORM_VR
+            jkPlayer_VRComputeOffhandLock(pPovThing);
+            if (pPovThing == &vrScopeRifleThing) {
+                jkPlayer_VRDrawScopeSight();
+            }
+#endif
+        }
 #ifdef PLATFORM_VR
         // Restore arm visibility after draw
         if (vrAmputatedNodeIdx >= 0) {
-            playerThings[playerThingIdx].povModel.amputatedJoints[vrAmputatedNodeIdx] = 0;
+            pPovThing->amputatedJoints[vrAmputatedNodeIdx] = 0;
         }
         // Restore suppressed fists arm meshes
         jkPlayer_VRRestoreArmMeshes(vrArmSaved, vrArmSavedCount);
@@ -1515,6 +1717,11 @@ void jkPlayer_DrawPov()
                 int offHand = 1 - stdVR_GetDominantHand();
                 // Use raw controller matrix (no weapon pitch/position offsets)
                 if (stdVR_GetControllerViewMatrixRaw(offHand, &offhandViewMat)) {
+                    // Added: a grabbed two-handed weapon holds the off-hand on its barrel.
+                    if (bVROffhandLockValid && stdVR_TwoHanded_IsStabilised()) {
+                        offhandViewMat.scale = vrOffhandLockPos;
+                    }
+
                     // Disable software backface culling (same reason as main weapon)
                     int vrOffhandSavedRenderOptions = rdGetRenderOptions();
                     rdSetRenderOptions(vrOffhandSavedRenderOptions & ~1);

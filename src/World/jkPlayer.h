@@ -203,6 +203,8 @@ extern int jkPlayer_vrMoveQuakeFeel;     // Quake-style short accel/decel ramps 
 extern flex_t jkPlayer_vrMoveAccel;      // Approach rate toward top speed (1/sec)
 extern flex_t jkPlayer_vrMoveFriction;   // Slow-down rate when releasing the stick (1/sec)
 extern flex_t jkPlayer_vrMoveStopFrac;   // Below this fraction of top speed, decel goes linear
+extern flex_t jkPlayer_vrScopeEngageDist; // Rifle Scope raise-to-eye distance (m)
+extern flex_t jkPlayer_vrScopeAimSmooth;  // Rifle Scope aim smoothing per 72Hz frame
 extern float jkPlayer_vrHudWidth;        // Baked HUD half-width in NDC
 extern float jkPlayer_vrHudHeight;       // Baked HUD half-height in NDC
 extern float jkPlayer_vrHudPosX;         // Baked HUD horizontal centre in NDC

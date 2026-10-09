@@ -8,6 +8,8 @@
 #include "stdVR_Types.h"
 #include "stdVR_Map3D.h"
 #include "stdVR_Prompts.h"
+#include "stdVR_Scope.h"
+#include "stdVR_TwoHanded.h"
 #include "Platform/stdControl.h"
 #include "stdPlatform.h"
 #include "General/stdMath.h"
@@ -196,8 +198,9 @@ void stdVR_Input_GetMovementDirection(float* pMoveX, float* pMoveY)
 
     // Movement is already oriented based on controller/head direction
     // The actual transformation happens in sithControl when we apply moveYaw
-    *pMoveX = moveX;
-    *pMoveY = moveY;
+    // Added: creep while looking through the Rifle Scope - full speed under 4x+ zoom is sickening.
+    *pMoveX = moveX * stdVR_Scope_GetMoveScale();
+    *pMoveY = moveY * stdVR_Scope_GetMoveScale();
 }
 
 // Track if menu button triggered escape this frame
@@ -215,6 +218,10 @@ void stdVR_Input_MapToGame(void)
 
     // Process snap turn
     stdVR_Input_ProcessSnapTurn();
+
+    // Added: before the wheel, so an off-hand grip that grabs a two-handed weapon never opens it.
+    stdVR_TwoHanded_UpdateInput();
+    stdVR_Scope_UpdateInput();
 
     // Update weapon/force wheel (before weapon switch logic)
     stdVR_WeaponWheel_Update();
@@ -250,7 +257,8 @@ void stdVR_Input_MapToGame(void)
     // Turn stick DOWN toggles crouch. Pushing UP does nothing: weapon selection is the
     // wheel's job, and a nudged stick flick kept switching weapons by accident. Disabled
     // while a wheel or the alignment tool is up - both own the sticks.
-    if (!stdVR_WeaponWheel_IsActive() && !stdVR_AlignmentTool_IsActive()) {
+    // Added: in the scope's manual zoom mode the same stick steps the zoom (stdVR_Scope).
+    if (!stdVR_WeaponWheel_IsActive() && !stdVR_AlignmentTool_IsActive() && !stdVR_Scope_IsZoomStickActive()) {
         // Use the turn stick's Y axis (right stick by default, left if the sticks are swapped
         // - analogTurn is already routed by stdVR_OpenXR_UpdateInput)
         float weaponSwitchY = stdVR_clientInfo.analogTurn[1];  // Y axis of turn stick

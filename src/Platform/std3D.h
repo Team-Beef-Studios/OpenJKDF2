@@ -158,6 +158,10 @@ void std3D_DrawUIRenderListToCurrentFBO(int fboWidth, int fboHeight, float dstX,
 // VR HUD: render the multi-textured UI list to one RGBA texture (single-view) then composite it
 // into both eye layers as a single-texture multiview draw — fixes the Adreno per-eye HUD desync.
 void std3D_RenderVRHudViaTexture(int fboWidth, int fboHeight, float dstX, float dstY, float dstW, float dstH);
+// VR Rifle Scope: black surround with a round eyepiece and crosshair, filling the whole eye view.
+// diameterFrac is the eyepiece diameter as a fraction of the shorter eye-buffer side; centreNdcY
+// is where straight ahead lands vertically (the eye frustums are not vertically symmetric).
+void std3D_DrawVRScopeMask(int fboWidth, int fboHeight, float diameterFrac, float centreNdcY);
 // MultiView UBO functions for single-pass stereo rendering
 void std3D_UpdateMultiViewMatrices(float* viewMatrices, float* projMatrices);
 void std3D_BindMultiViewUBOs(unsigned int program);

@@ -2,6 +2,8 @@
 
 #include "jk.h"
 
+int stdPalEffects_vrSuppressedRequest = -1;
+
 int stdPalEffects_Open(stdPalEffectSetPaletteFunc_t a1)
 {
     stdPalEffects_setPalette = a1;
@@ -335,7 +337,12 @@ void stdPalEffects_GatherEffects()
         pEffectReq = &stdPalEffects_aEffects[0];
         do
         {
-            if ( pEffectReq->isValid )
+            // Altered: a suppressed request still counts towards the loop's termination.
+            if ( pEffectReq->isValid && (pEffectReq - stdPalEffects_aEffects) == stdPalEffects_vrSuppressedRequest )
+            {
+                ++effectRequestCounter;
+            }
+            else if ( pEffectReq->isValid )
             {
                 if ( pEffectReq->effect.filter.x )
                     palEffect.filter.x = 1;

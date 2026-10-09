@@ -8,6 +8,8 @@
 #include "Platform/VR/stdVR_Input.h"
 #include "Platform/VR/stdVR_WeaponOffsets.h"
 #include "Platform/VR/stdVR_AlignmentTool.h"
+#include "Platform/VR/stdVR_Scope.h"
+#include "Platform/VR/stdVR_TwoHanded.h"
 #include "Primitives/rdVector.h"
 #include "General/stdMath.h"
 #include "Primitives/rdMatrix.h"
@@ -571,10 +573,18 @@ void stdVR_SetMultiViewMatrices(float zNear, float zFar)
     // center-view space the geometry was rendered in into this eye's view space; it is independent
     // of the game camera (it cancels). This replaces the old union-render + shader post-warp/remap
     // and is correct on both desktop and Adreno (no post-projection magnify), so no platform gate.
+    // Added: the Rifle Scope view is mono (the same centre image in both eyes, i.e. at infinity) -
+    // stereo parallax magnified by the zoom is unreadable - and narrows each eye's frustum.
+    int bScoped = stdVR_Scope_IsEngaged();
+    float scopeZoom = stdVR_Scope_GetZoom();
+
     for (int eye = 0; eye < STDVR_EYE_COUNT; eye++) {
         rdMatrix34 invEye, mEye;
         rdMatrix_InvertOrtho34(&invEye, &stdVR_clientInfo.eyes[eye].viewMatrix);
         rdMatrix_Multiply34(&mEye, &invEye, &stdVR_clientInfo.hmdPoseMatrix);
+        if (bScoped) {
+            rdMatrix_Identity34(&mEye);
+        }
         // Physical eye-from-center offset is in meters; scale into game units like the combine path.
         mEye.scale.x *= worldScale;
         mEye.scale.y *= worldScale;
@@ -591,6 +601,10 @@ void stdVR_SetMultiViewMatrices(float zNear, float zFar)
 
         // Real asymmetric per-eye projection from the OpenXR FOV tangents.
         stdVR_GetEyeProjectionMatrix44(eye, &projMatrices[eye * 16], zNear, zFar);
+        if (bScoped) {
+            projMatrices[eye * 16 + 0] *= scopeZoom;
+            projMatrices[eye * 16 + 5] *= scopeZoom;
+        }
     }
 
     // Per-eye HUD offset (forward-centering + convergence) for the baked 2D HUD, at the menu depth.
@@ -649,6 +663,9 @@ void stdVR_UpdateTracking(void)
     }
 
     stdVR_OpenXR_UpdateTracking();
+
+    // Added: before anything reads the weapon hand's pose this frame.
+    stdVR_TwoHanded_ApplyToPose();
 
     if (stdVR_bPendingScreenLayerResnap) {
         stdVR_bPendingScreenLayerResnap = 0;
@@ -1640,6 +1657,15 @@ void stdVR_DrawWeaponCrosshair(void)
             }
             return;
         }
+    }
+
+    // Added: the scope has its own reticle, and the laser dot would sit on the eye.
+    if (stdVR_Scope_IsEngaged()) {
+        if (stdVR_pCrosshairThing) {
+            sithThing_Destroy(stdVR_pCrosshairThing);
+            stdVR_pCrosshairThing = NULL;
+        }
+        return;
     }
 
     sithThing* pPlayer = sithPlayer_pLocalPlayerThing;

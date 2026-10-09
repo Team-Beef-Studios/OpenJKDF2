@@ -6,6 +6,9 @@
 #include "AI/sithAIClass.h"
 #include "Main/jkGame.h"
 #include "jk.h"
+#ifdef PLATFORM_VR
+#include "Platform/VR/stdVR_Scope.h"
+#endif
 
 
 void sithCogFunctionAI_AISetMoveSpeed(sithCog *ctx)
@@ -279,6 +282,22 @@ void sithCogFunctionAI_FirstThingInView(sithCog *ctx)
     }
     
     v3 = v2;
+
+#ifdef PLATFORM_VR
+    // Added: the Rifle Scope's auto-zoom probes along the scoped view, which in VR follows the
+    // rifle rather than the body's look direction.
+    if (v2 && v2 == sithPlayer_pLocalPlayerThing && stdVR_Scope_GetWorldView(&v7))
+    {
+        sithCogFunctionAI_unk1 = sithAI_FirstThingInView(v3->sector, &v7, v6, v6, 32, sithCogFunctionAI_apViewThings, v5, a1);
+        sithCogFunctionAI_viewThingIdx = 0;
+        if (sithCogFunctionAI_unk1 > 0 && sithCogFunctionAI_apViewThings[0])
+            sithCogExec_PushInt(ctx, sithCogFunctionAI_apViewThings[0]->thingIdx);
+        else
+            sithCogExec_PushInt(ctx, -1);
+        return;
+    }
+#endif
+
     if ( v2
       && ((_memcpy(&v7, &v2->lookOrientation, sizeof(v7)), v4 = v2->type, v4 == SITH_THING_ACTOR) || v4 == SITH_THING_PLAYER ? (rdMatrix_PreRotate34(
                                                                                                                                        &v7,

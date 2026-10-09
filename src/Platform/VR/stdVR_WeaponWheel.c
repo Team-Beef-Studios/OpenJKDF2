@@ -5,6 +5,7 @@
 #include "stdVR.h"
 #include "stdVR_Types.h"
 #include "stdVR_Input.h"
+#include "stdVR_TwoHanded.h"
 #include "stdPlatform.h"
 #include "Platform/std3D.h"
 #include "General/stdBitmap.h"
@@ -89,8 +90,9 @@ static const stdVR_WeaponModelName stdVR_aWeaponModelNames[] = {
     { SITHBIN_MOTS_CONCUSSION_RIFLE,   { "conv.3do",  "conv_m.3do",  NULL } },
     { SITHBIN_MOTS_LIGHTSABER,         { "sabv.3do",  "sabv_m.3do",  NULL } },
     { SITHBIN_MOTS_BLASTECH,           { "blsv.3do",  "blsv_m.3do",  NULL } },
-    // The scope's POV model is nullpov.3do (it draws as a HUD overlay), so show the pickup mesh.
-    { SITHBIN_MOTS_STORMTROOPER_SCOPE, { "sscv.3do",  "sscg.3do",    NULL } },
+    // Altered: show the scope pickup itself so the entry reads differently from the plain rifle
+    // (sscv.3do is a byte-identical copy of strv.3do).
+    { SITHBIN_MOTS_STORMTROOPER_SCOPE, { "scpe.3do",  "sscv.3do",    NULL } },
     { SITHBIN_MOTS_FLASH_BOMB,         { "flsv.3do",  "flsv_m.3do",  NULL } },
     { SITHBIN_MOTS_TUSKEN_PROD,        { "bowv.3do",  NULL } },
     { SITHBIN_MOTS_RAIL_SEEKER,        { "skrv.3do",  "skrv_m.3do",  NULL } },
@@ -475,7 +477,7 @@ void stdVR_WeaponWheel_Update(void)
             stdVR_TriggerHaptic(dominantHand, 0.3f, 0.1f, 100.0f);
         }
     }
-    else if (stdVR_clientInfo.buttonPressed & btnGripOffhand) {
+    else if ((stdVR_clientInfo.buttonPressed & btnGripOffhand) && !stdVR_TwoHanded_OwnsOffhandGrip()) {
         // Off-hand grip opens the two-page wheel: Force powers and inventory items, flipped
         // with the off-hand thumbstick while held. Prefer the Force page, but fall back to
         // items so the wheel is still useful before any powers have been earned.
@@ -748,6 +750,11 @@ int stdVR_WeaponWheel_GetActiveWheel(void)
 // ============================================================================
 int stdVR_WeaponWheel_IsGripSuppressed(int hand)
 {
+    // Added: the off-hand grip is holding a two-handed weapon, so it is not "use item".
+    if (hand == 1 - stdVR_config.dominantHand && stdVR_TwoHanded_OwnsOffhandGrip()) {
+        return 1;
+    }
+
     if (stdVR_wheelState.activeWheel == STDVR_WHEEL_NONE) {
         return 0;
     }

@@ -7,6 +7,7 @@
 #include "stdVR_Input.h"
 #include "stdVR_WeaponWheel.h"
 #include "stdVR_Map3D.h"
+#include "stdVR_Scope.h"
 #include "Main/jkDev.h"
 #include "stdPlatform.h"
 #include "Main/jkStrings.h"
@@ -201,6 +202,7 @@ static int stdVR_Prompts_IsSatisfied(int promptId)
         case STDVR_PROMPT_JUMP:         return stdVR_Input_IsButtonDown(stdVR_GetJumpButton());
         case STDVR_PROMPT_ACTIVATE:     return stdVR_Input_IsButtonDown(stdVR_GetActivateButton());
         case STDVR_PROMPT_ALT_FIRE:     return stdVR_Input_IsButtonDown(stdVR_GetAltFireButton());
+        case STDVR_PROMPT_SCOPE:        return stdVR_Scope_IsEngaged();
         default:                        return 0;
     }
 }
@@ -546,6 +548,12 @@ static void stdVR_Prompts_TickWeapon(void)
     else if (weap == SITHBIN_LIGHTSABER || weap == SITHBIN_MOTS_LIGHTSABER) {
         stdVR_Prompts_ShowOnce(STDVR_PROMPT_SABER_SWING, "GUIEXT_VR_PROMPT_SABER",
                                L"Swing the controller to use the lightsaber", NULL, NULL);
+    }
+    else if (weap == SITHBIN_MOTS_STORMTROOPER_SCOPE) {
+        // Nothing on screen says the scope needs both hands and the eye.
+        stdVR_Prompts_ShowOnce(STDVR_PROMPT_SCOPE, "GUIEXT_VR_PROMPT_SCOPE",
+                               L"Hold the rifle with the %ls grip and raise the scope to your eye",
+                               stdVR_Prompts_OffHandWord(), NULL);
     }
     else if (stdVR_Prompts_WeaponHasAltFire(weap)) {
         stdVR_Prompts_ShowOnce(STDVR_PROMPT_ALT_FIRE, "GUIEXT_VR_PROMPT_ALT_FIRE",

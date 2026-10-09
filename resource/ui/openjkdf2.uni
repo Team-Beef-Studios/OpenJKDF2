@@ -1,4 +1,4 @@
-MSGS 143          # <--- DON'T FORGET TO UPDATE THIS COUNT
+MSGS 144          # <--- DON'T FORGET TO UPDATE THIS COUNT
 
 #  "<key>"     <unused number>   "<string>"
 
@@ -124,6 +124,7 @@ MSGS 143          # <--- DON'T FORGET TO UPDATE THIS COUNT
    "GUIEXT_VR_PROMPT_DEATH_LOAD"                     0 "Press Y for the menu, then Load to restore your last save"
    "GUIEXT_VR_PROMPT_HOLOMAP_GRAB"                   0 "Use the grip buttons to grab, rotate and scale the map"
    "GUIEXT_VR_PROMPT_HOLOMAP_CLOSE"                    0 "Click the %ls thumbstick again to close the map"
+   "GUIEXT_VR_PROMPT_SCOPE"                          0 "Hold the rifle with the %ls grip and raise the scope to your eye"
    "GUIEXT_VR_MOVE_DIRECTION"                      0 "Controller-Relative Move"
    "GUIEXT_VR_MOVE_DIRECTION_HINT"                 0 "Move relative to controller instead of head direction"
    "GUIEXT_VR_SNAP_TURN"                           0 "Snap Turn"

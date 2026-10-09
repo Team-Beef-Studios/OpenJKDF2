@@ -27,6 +27,7 @@
 #ifdef PLATFORM_VR
 #include "Platform/VR/stdVR.h"
 #include "Platform/VR/stdVR_Input.h"
+#include "Platform/VR/stdVR_Scope.h"
 #include <math.h>
 #endif
 
@@ -773,7 +774,8 @@ int sithControl_ReadFunctionMap(int funcIdx, int *pOut)
                 break;
             case INPUT_FUNC_JUMP:
                 // Dominant face button = jump (A or X)
-                vrInput = stdVR_Input_IsButtonDown(btnJump);
+                // Added: or turn stick up - the Rifle Scope's manual mode zooms in on "jump".
+                vrInput = stdVR_Input_IsButtonDown(btnJump) || stdVR_Scope_IsZoomInHeld();
                 break;
             case INPUT_FUNC_ACTIVATE:
                 // Other face button = activate/use (X or A)
@@ -781,7 +783,8 @@ int sithControl_ReadFunctionMap(int funcIdx, int *pOut)
                 break;
             case INPUT_FUNC_DUCK:
                 // Right thumbstick down = toggle crouch
-                vrInput = stdVR_Input_IsCrouchToggled();
+                // Added: the Rifle Scope's manual mode zooms out on "crouch".
+                vrInput = stdVR_Input_IsCrouchToggled() || stdVR_Scope_IsZoomOutHeld();
                 break;
             case INPUT_FUNC_USESKILL:
                 // Offhand trigger = use force power

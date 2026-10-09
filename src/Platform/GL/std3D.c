@@ -4137,6 +4137,82 @@ void std3D_RenderVRHudViaTexture(int fboWidth, int fboHeight, float dstX, float 
     std3D_DrawUIRenderListToCurrentFBO(fboWidth, fboHeight, dstX, dstY, dstW, dstH);
     jkPlayer_gamma = savedGamma;
 }
+
+#define STD3D_VR_SCOPE_MASK_SIZE (256)
+static GLuint std3D_vrScopeMaskTex = 0;
+
+// Premultiplied RGBA (the UI blend is ONE, ONE_MINUS_SRC_ALPHA): opaque black outside the
+// eyepiece, clear inside, plus a crosshair with an open centre. Texel (0,0) is opaque black and
+// doubles as the fill for the surround quads.
+static void std3D_CreateVRScopeMaskTex(void)
+{
+    const int N = STD3D_VR_SCOPE_MASK_SIZE;
+    uint8_t* pPixels = (uint8_t*)malloc(N * N * 4);
+    if (!pPixels) return;
+
+    const float c = (N - 1) * 0.5f;
+    const float radius = N * 0.5f - 1.0f;
+    const float gap = N * 0.06f;
+    for (int y = 0; y < N; y++) {
+        for (int x = 0; x < N; x++) {
+            float dx = x - c, dy = y - c;
+            float d = sqrtf(dx * dx + dy * dy);
+
+            float a = stdMath_Clamp(d - (radius - 1.5f), 0.0f, 1.0f) * 255.0f;
+            int bOnLine = (fabsf(dx) < 0.75f || fabsf(dy) < 0.75f) && d > gap;
+            if (bOnLine && a < 200.0f) a = 200.0f;
+
+            uint8_t* p = &pPixels[(y * N + x) * 4];
+            p[0] = p[1] = p[2] = 0;
+            p[3] = (uint8_t)a;
+        }
+    }
+
+    glGenTextures(1, &std3D_vrScopeMaskTex);
+    glBindTexture(GL_TEXTURE_2D, std3D_vrScopeMaskTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, N, N, 0, GL_RGBA, GL_UNSIGNED_BYTE, pPixels);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, blank_tex_white);
+    free(pPixels);
+}
+
+void std3D_DrawVRScopeMask(int fboWidth, int fboHeight, float diameterFrac, float centreNdcY)
+{
+    if (Main_bHeadless || !has_initted) return;
+    if (fboWidth <= 0 || fboHeight <= 0 || Window_xSize <= 0 || Window_ySize <= 0) return;
+
+    if (!std3D_vrScopeMaskTex) {
+        std3D_CreateVRScopeMaskTex();
+        if (!std3D_vrScopeMaskTex) return;
+    }
+
+    // The UI list is laid out in window space and stretched onto the dst rect, so size the
+    // eyepiece in eye-buffer pixels first to keep it round.
+    float sx = (float)Window_xSize / (float)fboWidth;
+    float sy = (float)Window_ySize / (float)fboHeight;
+    float diam = diameterFrac * (float)((fboWidth < fboHeight) ? fboWidth : fboHeight);
+    float x0 = ((float)fboWidth - diam) * 0.5f * sx;
+    float x1 = x0 + diam * sx;
+    float centreY = (float)fboHeight * 0.5f * (1.0f - centreNdcY);
+    float y0 = (centreY - diam * 0.5f) * sy;
+    float y1 = y0 + diam * sy;
+
+    // The surround overshoots the buffer: the per-eye HUD shift moves the whole list sideways.
+    float W = (float)Window_xSize, H = (float)Window_ySize;
+    float ox = W * 0.5f, oy = H * 0.5f;
+    const float b = 0.5f / STD3D_VR_SCOPE_MASK_SIZE;
+
+    std3D_PushUIQuad(x0, y0, x1, y1, 0.0f, 0.0f, 1.0f, 1.0f, std3D_vrScopeMaskTex, 1);
+    std3D_PushUIQuad(-ox, -oy, W + ox, y0, b, b, b, b, std3D_vrScopeMaskTex, 1);
+    std3D_PushUIQuad(-ox, y1, W + ox, H + oy, b, b, b, b, std3D_vrScopeMaskTex, 1);
+    std3D_PushUIQuad(-ox, y0, x0, y1, b, b, b, b, std3D_vrScopeMaskTex, 1);
+    std3D_PushUIQuad(x1, y0, W + ox, y1, b, b, b, b, std3D_vrScopeMaskTex, 1);
+
+    std3D_DrawUIRenderListToCurrentFBO(fboWidth, fboHeight, 0.0f, 0.0f, (float)fboWidth, (float)fboHeight);
+}
 #endif
 
 int std3D_AddToTextureCache(stdVBuffer *vbuf, rdDDrawSurface *texture, int is_alpha_tex, int no_alpha)

@@ -17,6 +17,7 @@
 // Added: VR support
 #ifdef PLATFORM_VR
 #include "Platform/VR/stdVR.h"
+#include "Platform/VR/stdVR_Scope.h"
 #endif
 
 static rdVector3 sithCamera_trans = {0.0, 0.3, 0.0};
@@ -1105,6 +1106,18 @@ void sithCamera_SetVRViewMultiView(void)
     rdMatrix34 centerView;
     stdVR_CombineCameraWithHMD(&sithCamera_currentCamera->viewMat, &centerView);
 
+    // Added: Rifle Scope at the eye - look down the barrel instead of where the head points.
+    // Position stays at the eye; only the orientation is replaced.
+    rdMatrix34 scopeLocal;
+    if (stdVR_Scope_GetLocalRotation(&scopeLocal)) {
+        rdMatrix34 scopeWorld;
+        rdMatrix_Multiply34(&scopeWorld, &sithCamera_currentCamera->viewMat, &scopeLocal);
+        rdVector_Copy3(&centerView.rvec, &scopeWorld.rvec);
+        rdVector_Copy3(&centerView.lvec, &scopeWorld.lvec);
+        rdVector_Copy3(&centerView.uvec, &scopeWorld.uvec);
+        stdVR_Scope_SetWorldView(&centerView);
+    }
+
     // Store for weapon rendering (center position)
     stdVR_SetCurrentEyeViewMatrix(&centerView);
 
@@ -1143,6 +1156,15 @@ void sithCamera_SetVRViewMultiView(void)
     float fovRight = stdMath_Max(stdVR_clientInfo.eyes[0].fovRight, stdVR_clientInfo.eyes[1].fovRight);
     float fovUp    = stdMath_Max(stdVR_clientInfo.eyes[0].fovUp,    stdVR_clientInfo.eyes[1].fovUp);
     float fovDown  = stdMath_Max(stdVR_clientInfo.eyes[0].fovDown,  stdVR_clientInfo.eyes[1].fovDown);
+
+    // Added: the scoped projection is narrower by the zoom, so clip to match it.
+    float scopeZoom = stdVR_Scope_GetZoom();
+    if (scopeZoom > 1.0f) {
+        fovLeft /= scopeZoom;
+        fovRight /= scopeZoom;
+        fovUp /= scopeZoom;
+        fovDown /= scopeZoom;
+    }
 
     // Set frustum tangents for CPU clipping
     rdCamera_SetVRTangents(fovLeft, fovRight, fovUp, fovDown);

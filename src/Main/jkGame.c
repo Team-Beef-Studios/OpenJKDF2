@@ -32,6 +32,7 @@
 // Added: VR support
 #ifdef PLATFORM_VR
 #include "Platform/VR/stdVR.h"
+#include "Platform/VR/stdVR_Scope.h"
 #include "Engine/rdCamera.h"
 #include "World/sithWeapon.h"
 #include "World/sithTemplate.h"
@@ -265,6 +266,8 @@ int jkGame_Update()
 
                     // Upload both eye view/projection matrices to UBOs
                     // The shader will use gl_ViewID_OVR to select the correct matrices
+                    // Added: Rifle Scope aim smoothing and zoom ramp feed the matrices below.
+                    stdVR_Scope_UpdateView();
                     stdVR_SetMultiViewMatrices(0.01f, 1000.0f);  // zNear, zFar
 
                     // Set up center camera (MultiView handles eye separation in shader)
@@ -283,6 +286,13 @@ int jkGame_Update()
                     // them, leaving a hole for one frame.
                     sithMain_sub_4C4D80();
 
+                    // Added: the scope cog turns IR on as soon as the weapon is selected; in VR
+                    // it belongs to the view through the scope only.
+                    int savedIRMode = sithRender_lightingIRMode;
+                    if (stdVR_Scope_ShouldHideEffects()) {
+                        sithRender_lightingIRMode = 0;
+                    }
+
                     // Render scene once - GPU renders to both eye layers
                     sithRender_Draw();
                     jkPlayer_DrawPov();
@@ -292,6 +302,7 @@ int jkGame_Update()
 
                     // Flush render cache (includes crosshair sprite)
                     rdCache_Flush();
+                    sithRender_lightingIRMode = savedIRMode;
 					sithCamera_RestoreVRView();
 
                     // Resolve to VR swapchain (both eyes)
@@ -307,6 +318,9 @@ int jkGame_Update()
                         int hudW = stdVR_clientInfo.renderWidth;
                         int hudH = stdVR_clientInfo.renderHeight;
 
+                        // Added: must flush before the HUD queues anything - it draws the UI list.
+                        stdVR_Scope_DrawMask(hudW, hudH);
+
                         // Draw HUD elements (hidden when weapon/force wheel is active)
                         if (!stdVR_WeaponWheel_IsActive()) {
                             if (!Main_bMotsCompat) {
@@ -315,9 +329,8 @@ int jkGame_Update()
                                 }
                             }
                             else {
-                                if (playerThings[playerThingIdx].actorThing->actorParams.typeflags & SITH_AF_SCOPEHUD) {
-                                    jkHudScope_Draw();
-                                }
+                                // Removed: jkHudScope_Draw - its 640x480 overlay would land in the
+                                // HUD rect, head-locked; VR draws its own eyepiece (stdVR_Scope_DrawMask).
                                 if ((playerThings[playerThingIdx].actorThing->actorParams.typeflags & SITH_AF_80000000) == 0) {
                                     if ((playerThings[playerThingIdx].actorThing->actorParams.typeflags & SITH_AF_NOHUD) == 0) {
                                         jkHud_Draw();

@@ -113,6 +113,7 @@ enum
     STDVR_PROMPT_DEATH_LOAD  = 13,  // first death
     STDVR_PROMPT_HOLOMAP_GRAB= 14,  // holomap opened for the first time
     STDVR_PROMPT_HOLOMAP_CLOSE= 15, // follows the grab prompt, while the map is still open
+    STDVR_PROMPT_SCOPE       = 16,  // equipped the MotS Rifle Scope
     STDVR_PROMPT_COUNT              // <= 32
 };
 

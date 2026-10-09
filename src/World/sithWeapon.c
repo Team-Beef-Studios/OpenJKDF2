@@ -27,6 +27,7 @@
 
 #ifdef PLATFORM_VR
 #include "Platform/VR/stdVR.h"
+#include "Platform/VR/stdVR_Scope.h"
 #endif
 
 #ifdef QOL_IMPROVEMENTS
@@ -1434,7 +1435,12 @@ sithThing* sithWeapon_FireProjectile(sithThing *sender, sithThing *projectileTem
         thingtype == SITH_THING_PLAYER && sender == sithPlayer_pLocalPlayerThing)
     {
         stdVR_ControllerState* pCtrl = stdVR_GetDominantController();
-        if (pCtrl && pCtrl->bTracking)
+        if (stdVR_Scope_GetWorldView(&out))
+        {
+            // Added: Rifle Scope at the eye - fire along the scoped view so the shot lands on
+            // the reticle. The fire origin below is replaced to match.
+        }
+        else if (pCtrl && pCtrl->bTracking)
         {
             // Get controller orientation combined with player body orientation
             stdVR_GetControllerWorldMatrix(stdVR_GetDominantHand(), &out);
@@ -1462,7 +1468,15 @@ sithThing* sithWeapon_FireProjectile(sithThing *sender, sithThing *projectileTem
         thingtype == SITH_THING_PLAYER && sender == sithPlayer_pLocalPlayerThing)
     {
         stdVR_ControllerState* pCtrl = stdVR_GetDominantController();
-        if (pCtrl && pCtrl->bTracking)
+        rdMatrix34 scopeView;
+        if (stdVR_Scope_GetWorldView(&scopeView))
+        {
+            float muzzleOffset = 0.02f;
+            fireOffset->x = scopeView.scale.x + out.lvec.x * muzzleOffset;
+            fireOffset->y = scopeView.scale.y + out.lvec.y * muzzleOffset;
+            fireOffset->z = scopeView.scale.z + out.lvec.z * muzzleOffset;
+        }
+        else if (pCtrl && pCtrl->bTracking)
         {
             // Get controller world position as fire origin
             // stdVR_ControllerToWorld already includes weapon offsets (weaponOffsetX/Y/Z)

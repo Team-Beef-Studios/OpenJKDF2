@@ -47,6 +47,10 @@ void stdPalEffects_SetAdd(int idx, int r, int g, int b);
 void stdPalEffects_SetFade(int idx, flex_t fade);
 MATH_FUNC void stdPalEffects_UpdatePalette(const void *palette);
 void stdPalEffects_GatherEffects();
+
+// Added: one request left out of the gathered effect (-1 = none). VR uses it to hold back the
+// Rifle Scope's red view until the scope is raised to the eye.
+extern int stdPalEffects_vrSuppressedRequest;
 MATH_FUNC void stdPalEffects_ApplyTint(rdColor24 *aPalette, flex_t tintR, flex_t tintG, flex_t tintB);
 void stdPalEffects_ResetEffect(stdPalEffect *effect);
 
