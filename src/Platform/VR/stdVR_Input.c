@@ -15,6 +15,7 @@
 #include "General/stdMath.h"
 #include "Primitives/rdVector.h"
 #include "Cog/sithCog.h"
+#include "Gameplay/sithPlayer.h"
 
 #include "Main/jkHud.h"
 #include "Main/jkMain.h"
@@ -56,6 +57,10 @@ static int stdVR_alignPrevTriggerHeld = 0;
 // Crouch toggle via right thumbstick down
 static int stdVR_crouchToggled = 0;
 static int stdVR_crouchToggleState = 0;  // debounce: 0 = neutral, -1 = already toggled this push
+// Added: in water the turn stick's vertical is held, not toggled - see stdVR_Input_MapToGame.
+static int stdVR_swimUpHeld = 0;
+static int stdVR_swimDownHeld = 0;
+#define STDVR_SWIM_STICK_THRESHOLD 0.7f
 
 // Fist punch state per controller (fists fire on a forward thrust of EITHER hand). Edge-detected
 // once per frame in stdVR_Input_MapToGame so the haptic buzzes once per punch; the level value is
@@ -279,7 +284,18 @@ void stdVR_Input_MapToGame(void)
             weaponSwitchY = 0.0f;
         }
 
-        if (weaponSwitchY < -STDVR_CROUCH_THRESHOLD) {
+        // Added: in water "crouch" means swim down, every tick it is held. A crouch toggled on
+        // land would keep the player sinking with nothing on screen to say why, so drop it, and
+        // make the stick hold-to-dive / hold-to-rise instead.
+        int bUnderwater = sithPlayer_pLocalPlayerThing && sithPlayer_pLocalPlayerThing->sector
+                       && (sithPlayer_pLocalPlayerThing->sector->flags & SITH_SECTOR_UNDERWATER);
+        stdVR_swimUpHeld = bUnderwater && weaponSwitchY > STDVR_SWIM_STICK_THRESHOLD;
+        stdVR_swimDownHeld = bUnderwater && weaponSwitchY < -STDVR_SWIM_STICK_THRESHOLD;
+        if (bUnderwater) {
+            stdVR_crouchToggled = 0;
+            stdVR_crouchToggleState = 0;
+        }
+        else if (weaponSwitchY < -STDVR_CROUCH_THRESHOLD) {
             // Thumbstick pushed down - toggle crouch
             if (stdVR_crouchToggleState != -1) {
                 stdVR_crouchToggled = !stdVR_crouchToggled;
@@ -610,6 +626,16 @@ int stdVR_Input_IsPrevWeaponTriggered(void)
     // Altered: weapon stepping is allowed while the alignment tool is open - see the trigger
     // handling in stdVR_Input_MapToGame.
     return stdVR_prevWeaponTriggered;
+}
+
+int stdVR_Input_IsSwimUpHeld(void)
+{
+    return stdVR_bEnabled && stdVR_swimUpHeld;
+}
+
+int stdVR_Input_IsSwimDownHeld(void)
+{
+    return stdVR_bEnabled && stdVR_swimDownHeld;
 }
 
 // Check if crouch toggle is active

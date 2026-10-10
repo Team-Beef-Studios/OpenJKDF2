@@ -9,6 +9,7 @@
 #include "Main/jkGame.h"
 #include "World/jkPlayer.h"
 #include "General/stdBitmap.h"
+#include "General/stdMath.h"
 #include "stdPlatform.h"
 
 #include "jk.h"

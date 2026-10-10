@@ -676,6 +676,7 @@ void stdVR_UpdateTracking(void)
     if (stdVR_config.moveDirection == STDVR_MOVE_HEAD) {
         rdVector_Copy3(&stdVR_clientInfo.moveForward, &stdVR_clientInfo.hmdPoseMatrix.lvec);
         stdVR_clientInfo.moveYaw = stdVR_clientInfo.hmdOrientation.y;
+        stdVR_clientInfo.movePitch = stdVR_clientInfo.hmdOrientation.x;
     } else {
         // Steer with the hand actually holding the movement stick, not the weapon hand: you push
         // the stick with one thumb and expect to travel where that hand points. The move stick is
@@ -684,10 +685,12 @@ void stdVR_UpdateTracking(void)
         if (stdVR_clientInfo.controllers[hand].bTracking) {
             rdVector_Copy3(&stdVR_clientInfo.moveForward, &stdVR_clientInfo.controllers[hand].poseMatrix.lvec);
             stdVR_clientInfo.moveYaw = stdVR_clientInfo.controllers[hand].orientation.y;
+            stdVR_clientInfo.movePitch = stdVR_clientInfo.controllers[hand].orientation.x;
         } else {
             // Fallback to head
             rdVector_Copy3(&stdVR_clientInfo.moveForward, &stdVR_clientInfo.hmdPoseMatrix.lvec);
             stdVR_clientInfo.moveYaw = stdVR_clientInfo.hmdOrientation.y;
+            stdVR_clientInfo.movePitch = stdVR_clientInfo.hmdOrientation.x;
         }
     }
 }

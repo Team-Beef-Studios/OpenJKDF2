@@ -165,6 +165,7 @@ typedef struct stdVR_ClientInfo {
     // Decoupled movement direction (for comfort)
     rdVector3 moveForward;          // Forward direction for movement
     float moveYaw;                  // Yaw angle for movement calculations
+    float movePitch;                // Added: pitch of the same source, for swimming/flying
 
     // Analog input state
     float analogMove[2];            // Left stick: [0]=X (strafe), [1]=Y (forward)

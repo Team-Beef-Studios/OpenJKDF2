@@ -21,8 +21,10 @@ else()
     endif()
 endif()
 
-# Add VR source files
-file(GLOB VR_SRCS
+# Add VR source files. CONFIGURE_DEPENDS re-globs on every build: without it a new file is
+# silently left out (and fails to link) until CMake happens to be re-run, which the gradle
+# build's cached .cxx tree never does on its own.
+file(GLOB VR_SRCS CONFIGURE_DEPENDS
     ${PROJECT_SOURCE_DIR}/src/Platform/VR/*.c
     ${PROJECT_SOURCE_DIR}/src/Platform/VR/*.cpp
 )

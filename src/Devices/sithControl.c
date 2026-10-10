@@ -775,7 +775,9 @@ int sithControl_ReadFunctionMap(int funcIdx, int *pOut)
             case INPUT_FUNC_JUMP:
                 // Dominant face button = jump (A or X)
                 // Added: or turn stick up - the Rifle Scope's manual mode zooms in on "jump".
-                vrInput = stdVR_Input_IsButtonDown(btnJump) || stdVR_Scope_IsZoomInHeld();
+                // Added: and turn stick up in water - swim up.
+                vrInput = stdVR_Input_IsButtonDown(btnJump) || stdVR_Scope_IsZoomInHeld()
+                       || stdVR_Input_IsSwimUpHeld();
                 break;
             case INPUT_FUNC_ACTIVATE:
                 // Other face button = activate/use (X or A)
@@ -784,7 +786,9 @@ int sithControl_ReadFunctionMap(int funcIdx, int *pOut)
             case INPUT_FUNC_DUCK:
                 // Right thumbstick down = toggle crouch
                 // Added: the Rifle Scope's manual mode zooms out on "crouch".
-                vrInput = stdVR_Input_IsCrouchToggled() || stdVR_Scope_IsZoomOutHeld();
+                // Added: in water the stick is held to swim down (the toggle is cleared there).
+                vrInput = stdVR_Input_IsCrouchToggled() || stdVR_Scope_IsZoomOutHeld()
+                       || stdVR_Input_IsSwimDownHeld();
                 break;
             case INPUT_FUNC_USESKILL:
                 // Offhand trigger = use force power
@@ -1991,22 +1995,27 @@ void sithControl_FreeCam(sithThing *player)
                 v1->physicsParams.angVel.y = stdVR_Input_GetSmoothTurnSpeed();
             }
 
-            // Set movement acceleration
-            // Match PlayerMovement VR axis mapping for consistency
+            // Altered: swim/fly towards where the Movement Direction source (head or controller)
+            // points, pitch included - the same yaw source the ground path uses. This used to
+            // move relative to the body and rotate by actorParams.eyePYR, the desktop mouse-look
+            // angle, which VR never shows: the stick could not take the player up or down, and
+            // any stray eyePYR turned the swim direction by an angle the player could not see.
+            // analogMove is routed [0]=forward, [1]=strafe, so moveY is strafe and -moveX forward.
             flex_t thrust = v1->actorParams.maxThrust + v1->actorParams.extraSpeed;
-            v1->physicsParams.acceleration.x = moveY * thrust;           // Forward/back (up stick = forward)
-            v1->physicsParams.acceleration.y = -moveX * thrust * 0.7f;   // Strafe (right stick = right)
-
-            // Apply eye orientation for swim direction (look where you want to swim)
-            // This transforms movement based on where the player is looking (pitch)
-            if ( (v1->physicsParams.acceleration.x != 0.0 || v1->physicsParams.acceleration.y != 0.0)
-              && (v1->actorParams.eyePYR.x != 0.0 || v1->actorParams.eyePYR.y != 0.0 || v1->actorParams.eyePYR.z != 0.0)
-              && v2
-              && (v1->physicsParams.physflags & SITH_PF_WATERSURFACE) == 0 )
-            {
-                rdMatrix_BuildRotate34(&a, &v1->actorParams.eyePYR);
-                rdMatrix_TransformVector34Acc(&v1->physicsParams.acceleration, &a);
+            float fwdIn = -moveX;
+            float strafeIn = moveY * 0.7f;  // the original swims sideways at 70%
+            float yawRad = stdVR_clientInfo.moveYaw * (MATH_PI / 180.0f);
+            float pitchRad = stdVR_clientInfo.movePitch * (MATH_PI / 180.0f);
+            // At the surface keep to the water plane, as the original did.
+            if (!v2 || (v1->physicsParams.physflags & SITH_PF_WATERSURFACE)) {
+                pitchRad = 0.0f;
             }
+            float sinYaw = sinf(yawRad), cosYaw = cosf(yawRad);
+            float sinPitch = sinf(pitchRad), cosPitch = cosf(pitchRad);
+
+            v1->physicsParams.acceleration.x = (-sinYaw * cosPitch * fwdIn + cosYaw * strafeIn) * thrust;
+            v1->physicsParams.acceleration.y = (cosYaw * cosPitch * fwdIn + sinYaw * strafeIn) * thrust;
+            v1->physicsParams.acceleration.z = sinPitch * fwdIn * thrust;
 
             // Altered: make VR stick locomotion effectively instant here too so
             // swimming/flying doesn't retain the slow acceleration ramp.

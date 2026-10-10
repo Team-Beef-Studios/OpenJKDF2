@@ -51,6 +51,9 @@ int stdVR_Input_IsPrevWeaponTriggered(void);
 
 // Crouch toggle via right thumbstick down
 int stdVR_Input_IsCrouchToggled(void);
+// Added: turn stick held up/down while in water (swim up/down)
+int stdVR_Input_IsSwimUpHeld(void);
+int stdVR_Input_IsSwimDownHeld(void);
 void stdVR_Input_ResetCrouchToggle(void);
 
 // Melee punch: dominant hand thrust forward (fists are punch-activated, not trigger-fired)
